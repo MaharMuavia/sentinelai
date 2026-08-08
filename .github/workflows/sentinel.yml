@@ -64,7 +64,10 @@ jobs:
           pip install -r apps/api/requirements.txt
       - name: Extract Real PR Schema Diff
         run: |
-          python scripts/extract_pr_diff.py --pr ${{ github.event.pull_request.number }}
+          python scripts/extract_pr_diff.py \
+            --base ${{ github.event.pull_request.base.sha }} \
+            --head ${{ github.event.pull_request.head.sha }} \
+            --pr ${{ github.event.pull_request.number }}
       - name: Run Sentinel Investigation Engine
         env:
           DATAHUB_GMS_URL: ${{ secrets.DATAHUB_GMS_URL }}

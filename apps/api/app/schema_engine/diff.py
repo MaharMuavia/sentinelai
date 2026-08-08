@@ -51,6 +51,7 @@ class SchemaDiffEngine:
     """
     Deterministic Schema Diff Engine.
     Compares before and after SchemaSnapshots with strict semantic correctness.
+    Ensures before/after snapshots match the same target dataset.
     NEVER infers a column rename simply because a removed column and an added column share the same data type.
     Renames are recorded ONLY when explicitly declared in DDL or metadata mapping.
     """
@@ -62,10 +63,22 @@ class SchemaDiffEngine:
         source: str = "manual",
         explicit_renames: Optional[Dict[str, str]] = None
     ) -> ChangeSet:
-        before_fields: Dict[str, SchemaField] = {f.name.lower(): f for f in before.fields}
-        after_fields: Dict[str, SchemaField] = {f.name.lower(): f for f in after.fields}
-        renames = {k.lower(): v.lower() for k, v in (explicit_renames or {}).items()}
+        if before.dataset.urn.lower() != after.dataset.urn.lower():
+            raise ValueError(f"Dataset URN mismatch in schema diff: '{before.dataset.urn}' vs '{after.dataset.urn}'")
 
+        before_fields: Dict[str, SchemaField] = {}
+        for f in before.fields:
+            if f.name.lower() in before_fields:
+                raise ValueError(f"Duplicate case-insensitive field name '{f.name}' in before schema snapshot")
+            before_fields[f.name.lower()] = f
+
+        after_fields: Dict[str, SchemaField] = {}
+        for f in after.fields:
+            if f.name.lower() in after_fields:
+                raise ValueError(f"Duplicate case-insensitive field name '{f.name}' in after schema snapshot")
+            after_fields[f.name.lower()] = f
+
+        renames = {k.lower(): v.lower() for k, v in (explicit_renames or {}).items()}
         changes: List[SchemaChange] = []
 
         removed_names = set(before_fields.keys()) - set(after_fields.keys())

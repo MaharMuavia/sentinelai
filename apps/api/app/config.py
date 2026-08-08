@@ -8,10 +8,12 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     ENV: str = "development"
 
-    # DataHub Settings
+    # DataHub Settings & Data Modes
     DATAHUB_GMS_URL: str = "http://localhost:8080"
+    DATAHUB_MCP_ENDPOINT: str = "http://localhost:8080/mcp"
     DATAHUB_GMS_TOKEN: Optional[str] = None
-    DATAHUB_MUTATION_ENABLED: bool = True
+    DATAHUB_MUTATION_ENABLED: bool = False  # Security default OFF unless authorized
+    SENTINEL_DATA_MODE: str = "live"  # "live" (default) or "fixture"
 
     # AI / LLM Settings
     OPENAI_API_KEY: Optional[str] = None
@@ -20,7 +22,10 @@ class Settings(BaseSettings):
 
     # GitHub Integration
     GITHUB_TOKEN: Optional[str] = None
-    GITHUB_REPOSITORY: Optional[str] = None
+    GITHUB_REPOSITORY: Optional[str] = "acme/data-platform"
+
+    # Security & API Auth
+    SENTINEL_AUTH_TOKEN: Optional[str] = None
 
     # SQLite Database
     DATABASE_URL: str = "sqlite:///./sentinel.db"

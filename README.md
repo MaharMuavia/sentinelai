@@ -6,78 +6,76 @@
 [![Hackathon](https://img.shields.io/badge/Hackathon-Build_with_DataHub_2026-purple.svg)](https://datahubproject.io)
 [![Track](https://img.shields.io/badge/Track-Agents_That_Do_Real_Work-emerald.svg)](https://datahub.devpost.com/)
 
-> **Sentinel AI** is an autonomous pre-merge change firewall powered by DataHub context. It investigates proposed schema changes before pull requests are merged, verifies the blast radius across DataHub lineage graphs, enforces deterministic merge policy, proposes safely validated remediation, takes approved GitHub & DataHub actions, and writes persistent investigation audit memory back into DataHub.
+> **Sentinel AI** is an autonomous pre-merge change firewall powered by DataHub Model Context Protocol (MCP). It investigates proposed schema changes before pull requests are merged, retrieves real organizational context through DataHub MCP tools, constructs provenance-backed evidence, enforces deterministic merge policy, proposes safely validated remediation, gates external mutations behind human engineer approval, blocks unsafe GitHub PRs, and writes persistent investigation memory back into DataHub.
 
 ---
 
-## 1. Problem & Solution
+## 1. Problem & Product Positioning
 
 ### Problem
-Data teams routinely face silent production breaks when upstream schema changes (such as removing a column, changing a data type, or renaming a field) are merged into main branches. Existing tools notify engineers *after* the pipeline or dashboard breaks in production, resulting in emergency fire-fighting, corrupted metrics, and lost trust.
+Data engineering and analytics teams routinely face silent production outages when upstream database schema changes (e.g. dropping a column, altering a data type, or renaming a field) are merged into main git branches. Existing tools notify engineers *after* the pipeline or executive dashboard breaks in production, resulting in emergency firefighting and corrupted metrics.
 
-### Solution
-Sentinel AI operates **before merge**. When a developer opens a GitHub PR modifying a data model or schema, Sentinel:
-1. **Extracts** the actual schema diff from git/PR revisions deterministically.
-2. **Queries DataHub** through official MCP / Agent Context capabilities for entity schemas, column lineage, query execution logs, ownership, and domains.
-3. **Distinguishes** confirmed downstream consumers (e.g. executive dashboards, ML feature stores) from merely connected assets with explicit provenance.
-4. **Calculates** transparent, rule-based severity and a deterministic **Evidence Completeness %** (no fabricated confidence scores).
-5. **Generates & Validates** candidate SQLGlot AST remediation patches, enforcing strict semantic safety rules (requiring human review if predicates in `WHERE`, `JOIN`, `HAVING`, or `GROUP BY` are affected).
-6. **Enforces** PR policy in GitHub CI (failing closed on `BLOCK` and `INSUFFICIENT_EVIDENCE`), posts review comments, and **writes the investigation outcome back into DataHub**.
+### Solution & Positioning
+- **DataHub**: The central system of organizational metadata truth. Provides entity schemas, technical/business ownership, column-level lineage, and query execution logs.
+- **Sentinel AI**: Turns DataHub context into an **autonomous pre-merge change firewall**. Operates before merge, evaluates proposed schema diffs, computes deterministic risk, enforces CI merge policy, generates AST-validated code patches, and writes persistent investigation memory back into DataHub via Model Context Protocol (MCP).
 
 ---
 
-## 2. Core Differentiator: DataHub vs. Sentinel AI
-
-> [!IMPORTANT]
-> **DataHub** is the central system of organizational metadata truth. It knows the entities, schemas, ownership, and multi-hop lineage relationships.
-> 
-> **Sentinel AI** turns that context into an **autonomous pre-merge control loop**. It evaluates changes before they reach main, computes deterministic risk, enforces CI merge policy, generates validated AST code patches, and writes persistent investigation memory back into DataHub.
-
----
-
-## 3. System Architecture
+## 2. System Architecture
 
 ```mermaid
 graph TD
-    A[GitHub PR / Schema Diff] -->|1. Extract Diff| B[Sentinel API / Schema Diff Engine]
-    B -->|2. Deterministic Changeset| C[Sentinel Workflow Orchestrator]
-    C -->|3. Query Organizational Context| D[(DataHub GMS / MCP / Agent Context)]
-    D -->|Lineage, Field Maps, Query Logs, Owners| C
-    C -->|4. Build Blast Radius & Provenance| E[Impact Evidence Engine]
-    E -->|Classify Assets| F[Deterministic Risk Engine]
-    F -->|5. Severity, Verdict & Evidence %| G[Evidence-Grounded AI Reasoning]
-    C -->|6. AST Patch Generation| H[SQLGlot Remediation Engine]
-    H -->|7. Semantic Safety Check| I[Validated Patch / Human Review Required]
-    C -->|8. Enforce CI Gate & Post Comment| J[GitHub Actions API]
-    C -->|9. Aspect Proposal Ingestion| D
-    C -->|10. Audit Record| K[(SQLite Audit DB)]
-    K -->|11. Real-Time UI| L[Next.js Technical Dashboard]
+    A[Real GitHub PR: BASE_SHA vs HEAD_SHA] -->|1. Extract Diff & Repository Mapping| B[scripts/extract_pr_diff.py]
+    B -->|2. Machine-Readable Diff Artifact| C[Sentinel Workflow Orchestrator]
+    C -->|3. DataHub MCP Client (JSON-RPC 2.0)| D[(DataHub MCP Server / GMS Endpoint)]
+    D -->|Tools: get_entities, list_schema_fields, get_lineage, get_lineage_paths_between, get_dataset_queries| C
+    C -->|4. Build Provenanced Blast Radius Graph| E[Impact Evidence Engine]
+    E -->|Classify Consumers & Provenance| F[Deterministic Risk Engine]
+    F -->|5. Severity, Verdict & Evidence Coverage| G[Evidence-Grounded Reasoning Engine]
+    C -->|6. AST Patch Generation & Semantic Safety Rules| H[SQLGlot Remediation Engine]
+    H -->|7. Predicate Safety Check| I[Validated Patch / Human Review Required]
+    C -->|8. Human Approval Gating| J[Human Authorization Check]
+    J -->|9. Post PR Comment & Exit Code Enforcement| K[GitHub Actions API & CI Firewall]
+    J -->|10. MCP save_document & add_tags| D
+    C -->|11. Stage Audit History| L[(SQLite Audit DB)]
+    L -->|12. Real-Time UX| M[Next.js Dashboard & Truth Badges]
 ```
 
 ---
 
-## 4. 13-Stage Bounded Workflow Machine
+## 3. Official DataHub Model Context Protocol (MCP) Integration
 
-Sentinel operates as a 13-stage bounded state machine rather than an uncontrolled LLM loop:
+Sentinel AI interacts with DataHub strictly through official Model Context Protocol (MCP) JSON-RPC 2.0 tools:
 
-```text
-RECEIVE_CHANGE → NORMALIZE_CHANGE → LOAD_DATAHUB_CONTEXT → BUILD_EVIDENCE_GRAPH →
-VERIFY_CONSUMERS → COMPUTE_RISK → GENERATE_REMEDIATION → VALIDATE_REMEDIATION →
-GENERATE_EXPLANATION → HUMAN_APPROVAL → ACT → WRITE_BACK → COMPLETE
-```
+| MCP Tool Name | Purpose in Sentinel AI |
+| --- | --- |
+| `get_entities` | Retrieves dataset schema fields, technical/business owners, tags, and domain metadata. |
+| `list_schema_fields` | Fetches fine-grained column specifications for snapshot validation. |
+| `get_lineage` | Traverses multi-hop downstream dataset, dashboard, and ML model dependencies. |
+| `get_lineage_paths_between` | Traces exact field-to-field lineage paths from root dataset to consumer. |
+| `get_dataset_queries` | Inspects historical SQL query execution logs referencing dataset columns. |
+| `save_document` | Ingests persistent Sentinel investigation audit documents into DataHub. |
+| `add_tags` | Applies additive Sentinel risk tags (`Sentinel_BLOCK`, `Sentinel_SAFE_TO_MERGE`) to datasets. |
 
-Every stage emits structured progress events and writes an audit log entry to SQLite.
+Every evidence item carries an explicit `EvidenceProvenance` object tracking `source_mode`, `source_tool`, `entity_urn`, `field_path`, and `retrieved_at`.
 
 ---
 
-## 5. DataHub Capabilities Used
+## 4. Integration Modes & Strict Data Policy
 
-Sentinel integrates with native DataHub OpenAPI/GraphQL and MCP capabilities:
-- **`get_dataset` / Entities API**: Entity schema fields, technical/business owners, tags, and domain metadata.
-- **`get_downstream_lineage` / Graph API**: Table-level and dataset-level multi-hop dependency graph traversal.
-- **`get_column_lineage` / Fine-Grained Lineage API**: Field-to-field transformation mapping.
-- **`get_dataset_queries` / Query Log API**: Historical SQL query execution logs referencing dataset columns.
-- **Writeback (`writeback_investigation`)**: Ingests Sentinel aspect proposals, annotates dataset descriptions, and records persistent investigation audit documents.
+Sentinel enforces strict evidence truthfulness across three explicit data modes:
+- **`LIVE_DATAHUB`**: Connected to a live DataHub GMS instance over MCP. Every item carries live tool provenance.
+- **`DEMO_FIXTURE`**: Activated explicitly via `SENTINEL_DATA_MODE=fixture` for offline evaluation. Labeled as `DEMO FIXTURE — NOT LIVE VERIFIED`.
+- **`DATAHUB_UNAVAILABLE`**: DataHub GMS is offline and fixture fallback is disabled. Sentinel returns `0% Evidence Coverage`, `Trust: DATAHUB UNAVAILABLE`, and verdict `INSUFFICIENT_EVIDENCE` (failing closed). Silent switching to fixtures is completely eliminated.
+
+---
+
+## 5. Semantic Remediation Safety Engine
+
+Sentinel's AST remediation engine (`SQLRemediationEngine`) enforces strict safety levels:
+- `SYNTAX_VALID` / `STRUCTURALLY_VALID`: AST transformation passed static syntax and structural validation.
+- `REQUIRES_HUMAN`: If a removed column is referenced in `WHERE`, `JOIN`, `HAVING`, `GROUP BY`, `ORDER BY`, or `CASE` predicates, automatic approval is **DENIED**. Business filters are NEVER silently deleted.
+- `REMEDIATION_NOT_GENERATED`: Returned when downstream source SQL is unavailable.
 
 ---
 
@@ -85,14 +83,12 @@ Sentinel integrates with native DataHub OpenAPI/GraphQL and MCP capabilities:
 
 ### Prerequisites
 - Python 3.11+
-- Node.js 18+
-- Docker & Docker Compose (Optional for live DataHub OSS)
+- Node.js 20+
 
 ### 1. Clone Repository & Install Backend
 ```bash
 git clone https://github.com/MaharMuavia/sentinelai.git
 cd sentinelai
-cp .env.example .env
 
 cd apps/api
 python -m venv .venv
@@ -107,58 +103,28 @@ cd apps/web
 npm install
 npm run dev
 ```
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Open [http://localhost:3000](http://localhost:3000).
 
-### 3. Seed DataHub Demo Scenario
+### 3. Seed & Verify DataHub Demo Graph
 ```bash
 python scripts/seed_demo.py
+python scripts/verify_datahub_demo.py
 ```
 
 ---
 
-## 7. DataHub Integration Modes & Truthfulness
-
-Sentinel enforces strict evidence truthfulness across three explicit modes:
-- **`LIVE_DATAHUB`**: Connected to a live DataHub GMS instance. Evidence items display live tool provenance.
-- **`DEMO_FIXTURE`**: Isolated offline demo fixture mode for judge testing and local evaluation. Explicitly labeled in UI and logs.
-- **`DATAHUB_UNAVAILABLE`**: DataHub GMS is offline and fixture fallback is disabled. Sentinel returns `0% Evidence Completeness` and verdict `INSUFFICIENT_EVIDENCE` (failing closed).
-
----
-
-## 8. Reproducible Examples
-
-Judges can inspect real application-generated artifacts in the repository:
-- [`examples/critical-schema-removal/`](examples/critical-schema-removal): Full investigation artifacts for breaking `email` column deletion (`input.json`, `evidence.json`, `impact.json`, `investigation.md`, `github-comment.md`, `remediation.patch`, `validation.json`).
-- [`examples/safe-additive-change/`](examples/safe-additive-change): Artifacts for non-breaking column addition.
-
-To regenerate artifacts:
-```bash
-python scripts/generate_examples.py
-```
-
----
-
-## 9. Security & Safety Model
-
-- **Read Operations**: Automated & non-destructive.
-- **Safe Write Operations**: DataHub investigation documentation & additive tag ingestion.
-- **Semantic Safety Engine**: Automatic patch approval is denied if removed columns are used in `WHERE`, `JOIN`, `HAVING`, or `GROUP BY` predicates.
-- **Credential Protection**: Secrets (`DATAHUB_GMS_TOKEN`, `OPENAI_API_KEY`, `GITHUB_TOKEN`) are restricted to backend environment variables and redacted from logs.
-
----
-
-## 10. Verification & Test Suite
+## 7. Automated Test Suite & CI Enforcement
 
 Run backend test suite:
 ```bash
 cd apps/api
-pytest tests/
+python -m pytest tests/
 ```
 
-Run frontend build verification:
+Run GitHub Actions CI policy check:
 ```bash
-cd apps/web
-npm run build
+python scripts/extract_pr_diff.py --fixture examples/critical-schema-removal/input.json
+python scripts/run_ci_check.py
 ```
 
 ---

@@ -1,0 +1,8 @@
+{
+  "repository": "acme/data-platform",
+  "datasets": {
+    "models/raw_customers.sql": "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
+    "models/customer_360.sql": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
+    "models/churn_features.sql": "urn:li:dataset:(urn:li:dataPlatform:dbt,churn_features,PROD)"
+  }
+}

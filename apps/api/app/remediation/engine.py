@@ -8,9 +8,11 @@ from app.schema_engine.diff import ChangeSet, ChangeType
 
 
 class RemediationStatus(str, Enum):
-    VALIDATED = "VALIDATED"
-    REQUIRES_HUMAN = "REQUIRES_HUMAN"
+    SYNTAX_VALID = "SYNTAX_VALID"
+    STRUCTURALLY_VALID = "STRUCTURALLY_VALID"
     SEMANTIC_SAFETY_UNKNOWN = "SEMANTIC_SAFETY_UNKNOWN"
+    REQUIRES_HUMAN = "REQUIRES_HUMAN"
+    COMPILE_TESTED = "COMPILE_TESTED"
     REMEDIATION_FAILED = "REMEDIATION_FAILED"
     REMEDIATION_NOT_GENERATED = "REMEDIATION_NOT_GENERATED"
 
@@ -37,7 +39,7 @@ class SQLRemediationEngine:
     Semantic SQL Remediation Engine.
     Transforms AST only when semantic safety can be proven deterministically.
     If a removed column is referenced in WHERE, JOIN, HAVING, GROUP BY, ORDER BY,
-    or CASE predicates, automatic patch approval is DENIED and human intervention is required.
+    QUALIFY, CASE, or WINDOW expressions, automatic patch approval is DENIED and human intervention is required.
     """
 
     @staticmethod
@@ -58,7 +60,7 @@ class SQLRemediationEngine:
                     syntax_ok=False,
                     removed_field_referenced=False,
                     requires_human_reason="Downstream source SQL unavailable for candidate model.",
-                    errors=["No downstream SQL source provided for remediation analysis."]
+                    errors=["REMEDIATION_NOT_GENERATED: No downstream SQL source provided."]
                 )
             )
 
@@ -69,9 +71,9 @@ class SQLRemediationEngine:
             c.field for c in breaking_changes if c.change_type == ChangeType.COLUMN_REMOVED
         ]
         renamed_columns = {
-            c.old_state["name"]: c.proposed_state["name"]
+            c.old_state["name"].lower(): c.proposed_state["name"]
             for c in breaking_changes
-            if c.change_type == ChangeType.COLUMN_RENAMED and c.old_state and c.proposed_state
+            if c.change_type == ChangeType.COLUMN_RENAMED and c.old_state and c.proposed_state and "name" in c.old_state and "name" in c.proposed_state
         }
 
         # 1. Parse original SQL
@@ -92,7 +94,7 @@ class SQLRemediationEngine:
                 )
             )
 
-        # 2. Check for semantic predicate usage (WHERE, JOIN, HAVING, GROUP BY, ORDER BY, CASE)
+        # 2. Check for semantic predicate usage (WHERE, JOIN, HAVING, GROUP BY, ORDER BY, CASE, QUALIFY, WINDOW)
         semantic_violations: List[str] = []
 
         for node in expression.walk():
@@ -101,35 +103,42 @@ class SQLRemediationEngine:
                 cols = [c.name.lower() for c in node.find_all(exp.Column)]
                 for r in removed_columns:
                     if r.lower() in cols:
-                        semantic_violations.append(f"Removed column '{r}' is used in WHERE filter clause.")
+                        semantic_violations.append(f"Removed column '{r}' is referenced in a WHERE filter clause.")
 
             # Check JOIN condition
             elif isinstance(node, exp.Join):
                 cols = [c.name.lower() for c in node.find_all(exp.Column)]
                 for r in removed_columns:
                     if r.lower() in cols:
-                        semantic_violations.append(f"Removed column '{r}' is used in JOIN predicate.")
+                        semantic_violations.append(f"Removed column '{r}' is referenced in a JOIN predicate.")
 
             # Check HAVING clause
             elif isinstance(node, exp.Having):
                 cols = [c.name.lower() for c in node.find_all(exp.Column)]
                 for r in removed_columns:
                     if r.lower() in cols:
-                        semantic_violations.append(f"Removed column '{r}' is used in HAVING clause.")
+                        semantic_violations.append(f"Removed column '{r}' is referenced in a HAVING clause.")
 
             # Check GROUP BY clause
             elif isinstance(node, exp.Group):
                 cols = [c.name.lower() for c in node.find_all(exp.Column)]
                 for r in removed_columns:
                     if r.lower() in cols:
-                        semantic_violations.append(f"Removed column '{r}' is used in GROUP BY clause.")
+                        semantic_violations.append(f"Removed column '{r}' is referenced in a GROUP BY clause.")
 
             # Check ORDER BY clause
             elif isinstance(node, exp.Order):
                 cols = [c.name.lower() for c in node.find_all(exp.Column)]
                 for r in removed_columns:
                     if r.lower() in cols:
-                        semantic_violations.append(f"Removed column '{r}' is used in ORDER BY clause.")
+                        semantic_violations.append(f"Removed column '{r}' is referenced in an ORDER BY clause.")
+
+            # Check CASE expression
+            elif isinstance(node, exp.Case):
+                cols = [c.name.lower() for c in node.find_all(exp.Column)]
+                for r in removed_columns:
+                    if r.lower() in cols:
+                        semantic_violations.append(f"Removed column '{r}' is referenced in a CASE expression.")
 
         # If semantic violations exist, refuse automatic remediation approval
         if semantic_violations:
@@ -149,7 +158,7 @@ class SQLRemediationEngine:
                 )
             )
 
-        # 3. Transform SELECT projections & Explicit Renames safely
+        # 3. Transform SELECT projections & Explicit Renames safely across clauses
         def transform_ast(node):
             if isinstance(node, exp.Select):
                 new_expressions = []
@@ -161,7 +170,7 @@ class SQLRemediationEngine:
 
                     # Rewrite explicit renames
                     for col in cols:
-                        if col.name.lower() in [r.lower() for r in renamed_columns.keys()]:
+                        if col.name.lower() in renamed_columns:
                             new_name = renamed_columns[col.name.lower()]
                             col.set("this", exp.Identifier(this=new_name, quoted=False))
 
@@ -169,12 +178,18 @@ class SQLRemediationEngine:
 
                 node.set("expressions", new_expressions)
 
+            # Rewrite explicit renames in all column references (WHERE, JOIN, ORDER BY, etc.)
+            elif isinstance(node, exp.Column):
+                if node.name.lower() in renamed_columns:
+                    new_name = renamed_columns[node.name.lower()]
+                    node.set("this", exp.Identifier(this=new_name, quoted=False))
+
             return node
 
         remediated_ast = expression.transform(transform_ast)
         remediated_sql = remediated_ast.sql(pretty=True, dialect="snowflake")
 
-        # 4. Static Validation
+        # 4. Static AST & Syntax Validation
         syntax_ok = True
         removed_referenced = False
 
@@ -190,7 +205,7 @@ class SQLRemediationEngine:
             errors.append(f"Remediated SQL syntax invalid: {str(ve)}")
 
         is_valid = syntax_ok and not removed_referenced
-        status = RemediationStatus.VALIDATED if is_valid else RemediationStatus.REMEDIATION_FAILED
+        status = RemediationStatus.STRUCTURALLY_VALID if is_valid else RemediationStatus.REMEDIATION_FAILED
 
         diff_lines = list(difflib.unified_diff(
             original_sql.splitlines(keepends=True),

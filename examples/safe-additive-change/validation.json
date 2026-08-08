@@ -1,6 +1,6 @@
 {
   "is_valid": true,
-  "status": "VALIDATED",
+  "status": "STRUCTURALLY_VALID",
   "syntax_ok": true,
   "removed_field_referenced": false,
   "requires_human_reason": null,

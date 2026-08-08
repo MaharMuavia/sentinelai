@@ -1,5 +1,7 @@
 {
-  "before": {
+  "status": "EXTRACTED",
+  "dataset_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
+  "before_schema": {
     "dataset": {
       "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
       "platform": "snowflake",
@@ -33,7 +35,7 @@
       }
     ]
   },
-  "after": {
+  "after_schema": {
     "dataset": {
       "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
       "platform": "snowflake",

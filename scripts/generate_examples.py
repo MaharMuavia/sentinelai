@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Sentinel AI - Example Artifact Generator
+Sentinel AI — Example Artifact Generator
 Runs actual Sentinel workflow orchestrator to generate reproducible example artifacts for judging inspection.
 """
 
@@ -53,7 +53,13 @@ async def generate_examples():
     crit_dir = Path("examples/critical-schema-removal")
     crit_dir.mkdir(parents=True, exist_ok=True)
 
-    (crit_dir / "input.json").write_text(json.dumps({"before": critical_before.model_dump(), "after": critical_after.model_dump()}, indent=2), encoding="utf-8")
+    input_payload = {
+        "status": "EXTRACTED",
+        "dataset_urn": critical_before.dataset.urn,
+        "before_schema": critical_before.model_dump(),
+        "after_schema": critical_after.model_dump()
+    }
+    (crit_dir / "input.json").write_text(json.dumps(input_payload, indent=2), encoding="utf-8")
     (crit_dir / "evidence.json").write_text(json.dumps(res_critical.evidence_bundle.model_dump(), indent=2), encoding="utf-8")
     (crit_dir / "impact.json").write_text(json.dumps(res_critical.risk_assessment.model_dump(), indent=2), encoding="utf-8")
     (crit_dir / "validation.json").write_text(json.dumps(res_critical.remediation.validation.model_dump() if res_critical.remediation else {}, indent=2), encoding="utf-8")
@@ -61,7 +67,7 @@ async def generate_examples():
 
     comment_md = (
         f"## Sentinel AI Change Impact Analysis\n\n"
-        f"**Decision:** `{res_critical.recommendation}` | **Severity:** `{res_critical.severity}` | **Evidence Completeness:** `{res_critical.evidence_completeness}%`\n\n"
+        f"**Decision:** `{res_critical.recommendation}` | **Severity:** `{res_critical.severity}` | **Evidence Coverage:** `{res_critical.evidence_completeness}%` | **Trust:** `{res_critical.evidence_trust}`\n\n"
         f"### Proposed Change:\n`COLUMN_REMOVED: raw_customers.email`\n\n"
         f"**Confirmed Consumers Affected:** `{res_critical.confirmed_consumers_count}`\n\n"
         f"### Critical Lineage Paths:\n"
@@ -77,7 +83,8 @@ async def generate_examples():
         f"**Dataset:** `{res_critical.dataset_urn}`\n"
         f"**Decision:** `{res_critical.recommendation}`\n"
         f"**Severity:** `{res_critical.severity}`\n"
-        f"**Evidence Completeness:** `{res_critical.evidence_completeness}%`\n\n"
+        f"**Evidence Coverage:** `{res_critical.evidence_completeness}%`\n"
+        f"**Evidence Trust:** `{res_critical.evidence_trust}`\n\n"
         f"## Executive Summary\n{res_critical.ai_explanation.executive_summary}\n\n"
         f"## Why It Matters\n{res_critical.ai_explanation.why_it_matters}\n"
     )
@@ -111,7 +118,13 @@ async def generate_examples():
     safe_dir = Path("examples/safe-additive-change")
     safe_dir.mkdir(parents=True, exist_ok=True)
 
-    (safe_dir / "input.json").write_text(json.dumps({"before": safe_before.model_dump(), "after": safe_after.model_dump()}, indent=2), encoding="utf-8")
+    safe_input_payload = {
+        "status": "EXTRACTED",
+        "dataset_urn": safe_before.dataset.urn,
+        "before_schema": safe_before.model_dump(),
+        "after_schema": safe_after.model_dump()
+    }
+    (safe_dir / "input.json").write_text(json.dumps(safe_input_payload, indent=2), encoding="utf-8")
     (safe_dir / "evidence.json").write_text(json.dumps(res_safe.evidence_bundle.model_dump(), indent=2), encoding="utf-8")
     (safe_dir / "impact.json").write_text(json.dumps(res_safe.risk_assessment.model_dump(), indent=2), encoding="utf-8")
     (safe_dir / "validation.json").write_text(json.dumps(res_safe.remediation.validation.model_dump() if res_safe.remediation else {}, indent=2), encoding="utf-8")

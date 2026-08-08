@@ -11,6 +11,7 @@ export function EvidenceLedger({ evidenceBundle, riskAssessment }: EvidenceLedge
   if (!evidenceBundle) return null;
 
   const mode = evidenceBundle.integration_mode || "DEMO_FIXTURE";
+  const trustLabel = riskAssessment?.evidence_trust || (mode === "LIVE_DATAHUB" ? "LIVE DATAHUB MCP" : "DEMO FIXTURE — NOT LIVE VERIFIED");
 
   return (
     <div className="space-y-6">
@@ -21,7 +22,7 @@ export function EvidenceLedger({ evidenceBundle, riskAssessment }: EvidenceLedge
           <div>
             <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-300">DataHub Integration State</span>
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="font-extrabold text-sm text-white">{mode}</span>
+              <span className="font-extrabold text-sm text-white">{trustLabel}</span>
               {mode === "LIVE_DATAHUB" && (
                 <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono font-bold">
                   Verified Live Catalog
@@ -29,7 +30,7 @@ export function EvidenceLedger({ evidenceBundle, riskAssessment }: EvidenceLedge
               )}
               {mode === "DEMO_FIXTURE" && (
                 <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-mono font-bold">
-                  Isolated Demo Fixture Mode
+                  Isolated Demo Fixture Mode — NOT LIVE VERIFIED
                 </span>
               )}
               {mode === "DATAHUB_UNAVAILABLE" && (
@@ -52,7 +53,7 @@ export function EvidenceLedger({ evidenceBundle, riskAssessment }: EvidenceLedge
         )}
       </div>
 
-      {/* Evidence Completeness Score Breakdown */}
+      {/* Evidence Coverage & Trust Breakdown */}
       <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
         <div className="flex items-center justify-between mb-5 border-b border-slate-100 pb-4">
           <div className="flex items-center gap-2.5">
@@ -60,13 +61,16 @@ export function EvidenceLedger({ evidenceBundle, riskAssessment }: EvidenceLedge
               <ShieldCheck className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-slate-900 text-base">Evidence Completeness Audit</h3>
+              <h3 className="font-bold text-slate-900 text-base">Evidence Coverage Audit</h3>
               <p className="text-xs text-slate-500">Deterministic verification across 5 organizational metadata signals</p>
             </div>
           </div>
-          <span className="text-xl font-bold font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-4 py-1.5 rounded-xl shadow-xs">
-            {riskAssessment?.evidence_completeness}% Verified
-          </span>
+          <div className="text-right">
+            <span className="text-xl font-bold font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-4 py-1.5 rounded-xl shadow-xs inline-block">
+              {mode === "DEMO_FIXTURE" ? `Scenario Coverage: ${riskAssessment?.evidence_completeness}%` : `Evidence Coverage: ${riskAssessment?.evidence_completeness}%`}
+            </span>
+            <p className="text-[11px] font-mono font-semibold text-slate-500 mt-1">{trustLabel}</p>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">

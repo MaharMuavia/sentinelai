@@ -1,85 +1,131 @@
 #!/usr/bin/env python3
 """
-Sentinel AI - CI Pipeline Runner
-Executes Sentinel pre-merge investigation check for GitHub Actions workflows.
-Enforces deterministic non-zero exit code (exit 1) on BLOCK and INSUFFICIENT_EVIDENCE verdicts.
+Sentinel AI — GitHub Actions CI/CD Policy Firewall Script
+Evaluates Sentinel investigation output for a PR diff and enforces deterministic process exit codes.
+Exits 0 ONLY for SAFE_TO_MERGE. Exits non-zero (1) for BLOCK, INSUFFICIENT_EVIDENCE, UNMAPPED_DATASET, or missing artifacts.
 """
+
 import sys
 import os
 import json
+import argparse
 import asyncio
 from pathlib import Path
 
-# Ensure apps/api is in PYTHONPATH
-api_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "apps", "api")
-if api_dir not in sys.path:
-    sys.path.insert(0, api_dir)
+# Add apps/api to path for orchestrator
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "apps", "api")))
 
-from app.db.database import init_db, SessionLocal
+from app.db.database import SessionLocal, init_db
 from app.schema_engine.diff import SchemaSnapshot
 from app.workflow.orchestrator import SentinelWorkflowOrchestrator
+from app.risk.engine import DecisionVerdict
 
 
-async def run_ci():
-    print("[Sentinel AI] Starting CI Pre-Merge Investigation...")
+async def run_ci_check(diff_file: str, pr_url: str):
+    diff_path = Path(diff_file)
+    if not diff_path.exists():
+        print(f"[Sentinel CI Firewall] ERROR: Sentinel change artifact '{diff_file}' missing!")
+        print("[Sentinel CI Firewall] Policy Enforcement: FAIL-CLOSED -> Exit Code 1")
+        sys.exit(1)
 
-    diff_path = Path("sentinel_diff.json")
-    if diff_path.exists():
-        data = json.loads(diff_path.read_text(encoding="utf-8"))
-        before = SchemaSnapshot.model_validate(data["before_schema"])
-        after = SchemaSnapshot.model_validate(data["after_schema"])
-        pr_url = os.getenv("GITHUB_PR_URL", f"https://github.com/acme/sentinelai/pull/{data.get('pr_number', 42)}")
-    else:
-        # Fallback default breaking scenario
-        dataset_urn = "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)"
-        before = SchemaSnapshot(
-            dataset={"urn": dataset_urn, "name": "raw_customers"},
-            fields=[
-                {"name": "customer_id", "type": "STRING", "nullable": False},
-                {"name": "email", "type": "STRING", "nullable": True},
-                {"name": "country", "type": "STRING", "nullable": True}
-            ]
-        )
-        after = SchemaSnapshot(
-            dataset={"urn": dataset_urn, "name": "raw_customers"},
-            fields=[
-                {"name": "customer_id", "type": "STRING", "nullable": False},
-                {"name": "country", "type": "STRING", "nullable": True}
-            ]
-        )
-        pr_url = os.getenv("GITHUB_PR_URL", "https://github.com/acme/sentinelai/pull/42")
+    try:
+        diff_data = json.loads(diff_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"[Sentinel CI Firewall] ERROR: Failed to parse artifact '{diff_file}': {e}")
+        sys.exit(1)
+
+    status = diff_data.get("status")
+    if status == "UNMAPPED_DATASET":
+        print(f"[Sentinel CI Firewall] POLICY REJECTION: {diff_data.get('error', 'Unmapped dataset')}")
+        print("[Sentinel CI Firewall] Policy Enforcement: UNMAPPED DATASET -> Exit Code 1")
+        sys.exit(1)
+
+    if status in ("UNSUPPORTED_CHANGE", "ERROR_MISSING_COMMITS"):
+        print(f"[Sentinel CI Firewall] ERROR: Change extraction failed with status '{status}'")
+        sys.exit(1)
+
+    if "before_schema" not in diff_data or "after_schema" not in diff_data:
+        print("[Sentinel CI Firewall] ERROR: Malformed schema diff payload.")
+        sys.exit(1)
+
+    try:
+        before_schema = SchemaSnapshot.model_validate(diff_data["before_schema"])
+        after_schema = SchemaSnapshot.model_validate(diff_data["after_schema"])
+    except Exception as e:
+        print(f"[Sentinel CI Firewall] ERROR: SchemaSnapshot validation error: {e}")
+        sys.exit(1)
+
+    print("[Sentinel CI Firewall] Running Sentinel Workflow Orchestrator analysis...")
 
     init_db()
     db = SessionLocal()
     try:
         orchestrator = SentinelWorkflowOrchestrator(db)
-        result = await orchestrator.execute_investigation(
-            before_schema=before,
-            after_schema=after,
+        investigation = await orchestrator.execute_investigation(
+            before_schema=before_schema,
+            after_schema=after_schema,
             pr_url=pr_url
         )
 
-        print("----------------------------------------------------------------------")
-        print(f"[Sentinel AI] Investigation ID: {result.investigation_id}")
-        print(f"[Sentinel AI] Decision: {result.recommendation}")
-        print(f"[Sentinel AI] Severity: {result.severity}")
-        print(f"[Sentinel AI] Evidence Completeness: {result.evidence_completeness}%")
-        print(f"[Sentinel AI] DataHub Writeback: {result.datahub_writeback_status}")
-        print(f"[Sentinel AI] GitHub Action: {result.github_action_status}")
-        print("----------------------------------------------------------------------")
+        print("\n==================================================")
+        print(" SENTINEL AI PRE-MERGE FIREWALL ASSESSMENT")
+        print("==================================================")
+        print(f" Investigation ID:     {investigation.investigation_id}")
+        print(f" Target Dataset:        {investigation.dataset_urn}")
+        print(f" Risk Verdict:         {investigation.recommendation}")
+        print(f" Severity:             {investigation.severity}")
+        print(f" Evidence Coverage:    {investigation.evidence_completeness}%")
+        print(f" Evidence Trust:       {investigation.evidence_trust}")
+        print(f" Policy Triggered:     {investigation.risk_assessment.policy_triggered}")
+        print("==================================================\n")
 
-        # Deterministic exit policy:
-        # BLOCK or INSUFFICIENT_EVIDENCE -> Exit 1
-        # SAFE_TO_MERGE or MERGE_WITH_CAUTION -> Exit 0
-        if result.recommendation in ("BLOCK", "INSUFFICIENT_EVIDENCE"):
-            print(f"[Sentinel AI] CI GATE FAILED: Decision is '{result.recommendation}'. Policy mandates non-zero exit.")
+        verdict = investigation.recommendation
+
+        if verdict == DecisionVerdict.SAFE_TO_MERGE:
+            print("[Sentinel CI Firewall] SUCCESS: PR schema modifications verified safe to merge.")
+            print("[Sentinel CI Firewall] Policy Enforcement -> Exit Code 0")
+            sys.exit(0)
+
+        elif verdict == DecisionVerdict.BLOCK:
+            print(f"[Sentinel CI Firewall] PR BLOCKED: Critical or breaking downstream impacts detected.")
+            print("[Sentinel CI Firewall] Policy Enforcement -> Exit Code 1")
             sys.exit(1)
 
-        print(f"[Sentinel AI] CI GATE PASSED: Decision is '{result.recommendation}'. PR merge allowed.")
-        sys.exit(0)
+        elif verdict == DecisionVerdict.INSUFFICIENT_EVIDENCE:
+            print(f"[Sentinel CI Firewall] PR BLOCKED: Fail-closed policy triggered due to missing DataHub catalog evidence.")
+            print("[Sentinel CI Firewall] Policy Enforcement -> Exit Code 1")
+            sys.exit(1)
+
+        elif verdict == DecisionVerdict.MERGE_WITH_CAUTION:
+            # Configurable caution policy (default exit 1 for strict CI safety)
+            strict_caution = os.getenv("SENTINEL_STRICT_CAUTION", "true").lower() == "true"
+            if strict_caution:
+                print("[Sentinel CI Firewall] PR WARNED: Merge with caution required (Strict policy -> Exit Code 1).")
+                sys.exit(1)
+            else:
+                print("[Sentinel CI Firewall] PR WARNED: Merge with caution (Permissive policy -> Exit Code 0).")
+                sys.exit(0)
+
+        else:
+            print(f"[Sentinel CI Firewall] ERROR: Unknown verdict status '{verdict}'")
+            sys.exit(1)
+
     finally:
         db.close()
 
 
+def main():
+    parser = argparse.ArgumentParser(description="Run Sentinel CI Firewall check on PR diff artifact")
+    parser.add_argument("--diff-file", type=str, default="sentinel_diff.json", help="Path to schema diff artifact")
+    parser.add_argument("--fixture", type=str, default=None, help="Explicit fixture file path")
+    parser.add_argument("--pr-url", type=str, default=None, help="GitHub Pull Request URL")
+    args = parser.parse_args()
+
+    diff_file = args.fixture if args.fixture else args.diff_file
+    pr_url = args.pr_url or os.getenv("GITHUB_PR_URL") or "https://github.com/acme/data-platform/pull/42"
+
+    asyncio.run(run_ci_check(diff_file, pr_url))
+
+
 if __name__ == "__main__":
-    asyncio.run(run_ci())
+    main()

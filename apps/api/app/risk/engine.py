@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 from app.evidence.engine import ImpactEvidenceBundle, ImpactClassification
 from app.datahub.client import IntegrationMode
@@ -37,6 +37,7 @@ class RiskAssessment(BaseModel):
     severity: Severity
     verdict: DecisionVerdict
     evidence_completeness: float  # e.g. 94.0 or 0.0
+    evidence_trust: str  # "LIVE DATAHUB MCP", "DEMO FIXTURE — NOT LIVE VERIFIED", "DATAHUB UNAVAILABLE"
     risk_factors: List[RiskFactor]
     completeness_breakdown: List[CompletenessSignal]
     policy_triggered: str
@@ -45,7 +46,7 @@ class RiskAssessment(BaseModel):
 class RiskEngine:
     """
     Deterministic Pre-Merge Risk Assessment Engine.
-    Computes severity, verdict, and evidence completeness transparently from empirical DataHub evidence.
+    Computes severity, verdict, evidence completeness, and evidence trust.
     Ensures Sentinel NEVER claims 100% verified when evidence is missing or DataHub is unavailable.
     """
 
@@ -58,6 +59,13 @@ class RiskEngine:
         potential_consumers = [
             a for a in bundle.classified_assets if a.classification == ImpactClassification.POTENTIAL_IMPACT
         ]
+
+        if bundle.integration_mode == IntegrationMode.LIVE_DATAHUB:
+            trust_label = "LIVE DATAHUB MCP"
+        elif bundle.integration_mode == IntegrationMode.DEMO_FIXTURE:
+            trust_label = "DEMO FIXTURE — NOT LIVE VERIFIED"
+        else:
+            trust_label = "DATAHUB UNAVAILABLE"
 
         # 1. Integration & Evidence Availability Check
         if bundle.integration_mode == IntegrationMode.DATAHUB_UNAVAILABLE or not bundle.has_sufficient_evidence:
@@ -119,6 +127,7 @@ class RiskEngine:
                 severity=severity,
                 verdict=verdict,
                 evidence_completeness=0.0,
+                evidence_trust=trust_label,
                 risk_factors=risk_factors,
                 completeness_breakdown=signals,
                 policy_triggered=policy
@@ -203,7 +212,7 @@ class RiskEngine:
                 signal_name="SCHEMA_VERIFIED",
                 is_present=schema_verified,
                 weight=25.0,
-                description=f"Current schema snapshot verified against DataHub ({bundle.integration_mode.value})"
+                description=f"Current schema snapshot verified against DataHub ({trust_label})"
             ),
             CompletenessSignal(
                 signal_name="COLUMN_LINEAGE_AVAILABLE",
@@ -237,6 +246,7 @@ class RiskEngine:
             severity=severity,
             verdict=verdict,
             evidence_completeness=round(completeness_score, 1),
+            evidence_trust=trust_label,
             risk_factors=risk_factors,
             completeness_breakdown=signals,
             policy_triggered=policy

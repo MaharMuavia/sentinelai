@@ -3,8 +3,8 @@
   "status": "REQUIRES_HUMAN",
   "syntax_ok": true,
   "removed_field_referenced": true,
-  "requires_human_reason": "Removed column 'email' is used in WHERE filter clause. Modifying business logic predicates requires manual engineer review.",
+  "requires_human_reason": "Removed column 'email' is referenced in a WHERE filter clause. Modifying business logic predicates requires manual engineer review.",
   "errors": [
-    "Removed column 'email' is used in WHERE filter clause."
+    "Removed column 'email' is referenced in a WHERE filter clause."
   ]
 }

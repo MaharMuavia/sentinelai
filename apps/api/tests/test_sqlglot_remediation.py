@@ -51,6 +51,6 @@ def test_remediation_simple_projection_removal():
         changes=changes
     )
 
-    assert artifact.validation.status == RemediationStatus.VALIDATED
+    assert artifact.validation.status == RemediationStatus.STRUCTURALLY_VALID
     assert artifact.validation.is_valid is True
     assert "email" not in artifact.remediated_sql.lower()

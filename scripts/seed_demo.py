@@ -1,170 +1,146 @@
 #!/usr/bin/env python3
 """
-Sentinel AI - DataHub Demo Metadata Seeder Script
-Populates realistic organizational metadata graph into a real DataHub OSS instance using official REST emitters.
+Sentinel AI — DataHub Canonical Demo Seeder
+Seeds the canonical DataHub demo metadata graph using the official DataHub REST emitter.
+Fails loudly with exit code 1 if GMS is offline or ingestion fails.
 """
 
 import sys
 import os
-import json
 import logging
-import httpx
+from typing import List
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+from datahub.emitter.rest_emitter import DatahubRestEmitter
+from datahub.emitter.mcp import MetadataChangeProposalWrapper
+import datahub.metadata.schema_classes as models
+
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("sentinel.seed")
 
-DATAHUB_GMS_URL = os.getenv("DATAHUB_GMS_URL", "http://localhost:8080").rstrip("/")
-DATAHUB_GMS_TOKEN = os.getenv("DATAHUB_GMS_TOKEN", "")
 
-DEMO_ENTITIES = [
-    {
-        "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
-        "name": "raw_customers",
-        "platform": "snowflake",
-        "description": "Raw ingested customer identity and contact records from Salesforce",
-        "owners": ["sarah.chen@company.com"],
-        "tags": ["PII", "Core_Entity", "Tier_1"],
-        "domain": "Customer_Analytics",
-        "fields": [
-            {"name": "customer_id", "type": "STRING"},
-            {"name": "email", "type": "STRING"},
-            {"name": "country", "type": "STRING"},
-            {"name": "created_at", "type": "TIMESTAMP"}
-        ]
-    },
-    {
-        "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
-        "name": "customer_360",
-        "platform": "dbt",
-        "description": "Normalized 360 customer analytical view",
-        "owners": ["alex.rodriguez@company.com"],
-        "tags": ["Tier_1", "Production_Model"],
-        "domain": "Customer_Analytics",
-        "fields": [
-            {"name": "customer_id", "type": "STRING"},
-            {"name": "email", "type": "STRING"},
-            {"name": "country", "type": "STRING"},
-            {"name": "lifetime_value", "type": "NUMERIC"}
-        ]
-    },
-    {
-        "urn": "urn:li:dataset:(urn:li:dataPlatform:looker,marketing_dashboard,PROD)",
-        "name": "marketing_dashboard",
-        "platform": "looker",
-        "description": "Exec Marketing Campaign & Attribution Performance Dashboard",
-        "owners": ["emily.watson@company.com"],
-        "tags": ["Executive_Tier", "Critical_Dashboard"],
-        "domain": "Marketing",
-        "fields": []
-    },
-    {
-        "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,churn_features,PROD)",
-        "name": "churn_features",
-        "platform": "dbt",
-        "description": "Feature store dataset for customer churn prediction model",
-        "owners": ["david.kim@company.com"],
-        "tags": ["ML_Feature_Store", "Tier_1"],
-        "domain": "Data_Science",
-        "fields": [
-            {"name": "customer_id", "type": "STRING"},
-            {"name": "email_domain", "type": "STRING"}
-        ]
-    },
-    {
-        "urn": "urn:li:dataset:(urn:li:dataPlatform:mlflow,churn_model,PROD)",
-        "name": "churn_model",
-        "platform": "mlflow",
-        "description": "Production Customer Churn Risk Classification Model v2.4",
-        "owners": ["david.kim@company.com"],
-        "tags": ["Production_ML", "Critical_Model"],
-        "domain": "Data_Science",
-        "fields": []
-    },
-    {
-        "urn": "urn:li:dataset:(urn:li:dataPlatform:looker,billing_dashboard,PROD)",
-        "name": "billing_dashboard",
-        "platform": "looker",
-        "description": "Monthly Finance & Invoicing Metrics Dashboard",
-        "owners": ["finance@company.com"],
-        "tags": ["Finance"],
-        "domain": "Finance",
-        "fields": []
-    }
-]
+def seed_demo_graph():
+    gms_url = os.getenv("DATAHUB_GMS_URL", "http://localhost:8080").rstrip("/")
+    token = os.getenv("DATAHUB_GMS_TOKEN", "")
 
+    logger.info(f"Connecting to DataHub GMS at {gms_url}...")
+    emitter = DatahubRestEmitter(gms_server=gms_url, token=token if token else None)
 
-def seed_demo_datahub():
-    logger.info("Initializing Sentinel AI Demo Metadata Graph...")
-
-    headers = {"Content-Type": "application/json"}
-    if DATAHUB_GMS_TOKEN:
-        headers["Authorization"] = f"Bearer {DATAHUB_GMS_TOKEN}"
-
-    is_live = False
     try:
-        res = httpx.get(f"{DATAHUB_GMS_URL}/health", headers=headers, timeout=2.0)
-        is_live = (res.status_code == 200)
-    except Exception:
-        is_live = False
+        if not emitter.test_connection():
+            logger.error("DataHub GMS connection test failed! Cannot seed demo metadata.")
+            sys.exit(1)
+    except Exception as e:
+        logger.error(f"DataHub GMS connection error: {e}")
+        sys.exit(1)
 
-    if not is_live:
-        logger.warning(f"DataHub GMS at {DATAHUB_GMS_URL} is NOT reachable.")
-        logger.info("Sentinel will run in DEMO FIXTURE mode.")
-        logger.info("Loaded 6 demo entities into Sentinel local fixture graph.")
-        print("[Sentinel AI] Seeding result: DEMO_FIXTURE_LOADED (DataHub GMS was not mutated)")
-        return
+    mcps: List[MetadataChangeProposalWrapper] = []
 
-    logger.info(f"Connected to live DataHub GMS at {DATAHUB_GMS_URL}")
-    mutated_count = 0
+    # 1. Dataset Schemas
+    raw_customers_urn = "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)"
+    customer_360_urn = "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)"
+    marketing_dashboard_urn = "urn:li:dataset:(urn:li:dataPlatform:looker,marketing_dashboard,PROD)"
+    churn_features_urn = "urn:li:dataset:(urn:li:dataPlatform:dbt,churn_features,PROD)"
+    churn_model_urn = "urn:li:dataset:(urn:li:dataPlatform:mlflow,churn_model,PROD)"
 
-    for entity in DEMO_ENTITIES:
-        urn = entity["urn"]
-        logger.info(f"Ingesting entity proposal for '{entity['name']}' ({urn})...")
+    # Schema Aspect for raw_customers
+    schema_raw = models.SchemaMetadataClass(
+        schemaName="raw_customers",
+        platform="urn:li:dataPlatform:snowflake",
+        version=0,
+        hash="",
+        platformSchema=models.OtherSchemaClass(rawSchema=""),
+        fields=[
+            models.SchemaFieldClass(fieldPath="customer_id", type=models.SchemaFieldDataTypeClass(type=models.StringTypeClass()), nativeDataType="STRING", nullable=False, description="Primary customer key"),
+            models.SchemaFieldClass(fieldPath="email", type=models.SchemaFieldDataTypeClass(type=models.StringTypeClass()), nativeDataType="STRING", nullable=True, description="Customer primary email address"),
+            models.SchemaFieldClass(fieldPath="country", type=models.SchemaFieldDataTypeClass(type=models.StringTypeClass()), nativeDataType="STRING", nullable=True, description="ISO country code"),
+            models.SchemaFieldClass(fieldPath="created_at", type=models.SchemaFieldDataTypeClass(type=models.TimeTypeClass()), nativeDataType="TIMESTAMP", nullable=False, description="Record creation timestamp"),
+        ]
+    )
+    mcps.append(MetadataChangeProposalWrapper(entityUrn=raw_customers_urn, aspect=schema_raw))
 
-        # 1. Properties
-        prop_payload = {
-            "proposal": {
-                "entityType": "dataset",
-                "entityUrn": urn,
-                "aspectName": "datasetProperties",
-                "aspect": {
-                    "value": json.dumps({
-                        "name": entity["name"],
-                        "description": entity["description"]
-                    }),
-                    "contentType": "application/json"
-                },
-                "changeType": "UPSERT"
-            }
-        }
+    # Properties Aspect
+    prop_raw = models.DatasetPropertiesClass(
+        description="Raw ingested customer identity and contact records from Salesforce",
+        customProperties={"tier": "1", "domain": "Customer_Analytics", "environment": "PROD"}
+    )
+    mcps.append(MetadataChangeProposalWrapper(entityUrn=raw_customers_urn, aspect=prop_raw))
 
-        # 2. Tags
-        tag_payload = {
-            "proposal": {
-                "entityType": "dataset",
-                "entityUrn": urn,
-                "aspectName": "globalTags",
-                "aspect": {
-                    "value": json.dumps({
-                        "tags": [{"tag": f"urn:li:tag:{t}"} for t in entity["tags"]]
-                    }),
-                    "contentType": "application/json"
-                },
-                "changeType": "UPSERT"
-            }
-        }
+    # Ownership Aspect
+    owners_raw = models.OwnershipClass(
+        owners=[
+            models.OwnerClass(owner="urn:li:corpuser:sarah_chen", type=models.OwnershipTypeClass.TECHNICAL_OWNER)
+        ]
+    )
+    mcps.append(MetadataChangeProposalWrapper(entityUrn=raw_customers_urn, aspect=owners_raw))
 
+    # Tags Aspect
+    tags_raw = models.GlobalTagsClass(
+        tags=[
+            models.TagAssociationClass(tag="urn:li:tag:PII"),
+            models.TagAssociationClass(tag="urn:li:tag:Tier_1")
+        ]
+    )
+    mcps.append(MetadataChangeProposalWrapper(entityUrn=raw_customers_urn, aspect=tags_raw))
+
+    # Upstream Lineage (customer_360 -> raw_customers)
+    lineage_c360 = models.UpstreamLineageClass(
+        upstreams=[
+            models.UpstreamClass(
+                dataset=raw_customers_urn,
+                type=models.DatasetLineageTypeClass.TRANSFORMED
+            )
+        ],
+        fineGrainedLineages=[
+            models.FineGrainedLineageClass(
+                upstreamType=models.FineGrainedLineageUpstreamTypeClass.FIELD_SET,
+                upstreams=["urn:li:schemaField:(" + raw_customers_urn + ",email)"],
+                downstreamType=models.FineGrainedLineageDownstreamTypeClass.FIELD,
+                downstreams=["urn:li:schemaField:(" + customer_360_urn + ",email)"]
+            )
+        ]
+    )
+    mcps.append(MetadataChangeProposalWrapper(entityUrn=customer_360_urn, aspect=lineage_c360))
+
+    # Lineage for marketing_dashboard -> customer_360
+    lineage_mkt = models.UpstreamLineageClass(
+        upstreams=[
+            models.UpstreamClass(
+                dataset=customer_360_urn,
+                type=models.DatasetLineageTypeClass.TRANSFORMED
+            )
+        ],
+        fineGrainedLineages=[
+            models.FineGrainedLineageClass(
+                upstreamType=models.FineGrainedLineageUpstreamTypeClass.FIELD_SET,
+                upstreams=["urn:li:schemaField:(" + customer_360_urn + ",email)"],
+                downstreamType=models.FineGrainedLineageDownstreamTypeClass.FIELD,
+                downstreams=["urn:li:schemaField:(" + marketing_dashboard_urn + ",customer_email)"]
+            )
+        ]
+    )
+    mcps.append(MetadataChangeProposalWrapper(entityUrn=marketing_dashboard_urn, aspect=lineage_mkt))
+
+    # Tags for marketing_dashboard
+    tags_mkt = models.GlobalTagsClass(
+        tags=[
+            models.TagAssociationClass(tag="urn:li:tag:Executive_Tier"),
+            models.TagAssociationClass(tag="urn:li:tag:Critical_Dashboard")
+        ]
+    )
+    mcps.append(MetadataChangeProposalWrapper(entityUrn=marketing_dashboard_urn, aspect=tags_mkt))
+
+    # Emit all proposals to DataHub GMS
+    success_count = 0
+    for mcp in mcps:
         try:
-            r1 = httpx.post(f"{DATAHUB_GMS_URL}/aspects?action=ingestProposal", json=prop_payload, headers=headers, timeout=5.0)
-            r2 = httpx.post(f"{DATAHUB_GMS_URL}/aspects?action=ingestProposal", json=tag_payload, headers=headers, timeout=5.0)
-            if r1.status_code in (200, 201) and r2.status_code in (200, 201):
-                mutated_count += 1
+            emitter.emit(mcp)
+            success_count += 1
         except Exception as e:
-            logger.warning(f"Failed to ingest proposals for {urn}: {e}")
+            logger.error(f"Failed to emit proposal for {mcp.entityUrn}: {e}")
+            sys.exit(1)
 
-    logger.info(f"Successfully mutated DataHub GMS! {mutated_count}/{len(DEMO_ENTITIES)} entities updated.")
-    print(f"[Sentinel AI] Seeding result: DATAHUB_GMS_MUTATED ({mutated_count} entities updated)")
+    logger.info(f"Successfully seeded {success_count}/{len(mcps)} DataHub metadata aspects!")
 
 
 if __name__ == "__main__":
-    seed_demo_datahub()
+    seed_demo_graph()

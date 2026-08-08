@@ -1,45 +1,46 @@
 {
-  "severity": "LOW",
-  "verdict": "SAFE_TO_MERGE",
-  "evidence_completeness": 40.0,
+  "severity": "MEDIUM",
+  "verdict": "INSUFFICIENT_EVIDENCE",
+  "evidence_completeness": 0.0,
+  "evidence_trust": "DATAHUB UNAVAILABLE",
   "risk_factors": [
     {
-      "name": "NON_BREAKING_CHANGE",
-      "impact": "LOW",
-      "description": "Proposed change is non-breaking (e.g. additive column addition or nullability relaxation)."
+      "name": "DATAHUB_CATALOG_UNAVAILABLE",
+      "impact": "HIGH",
+      "description": "DataHub metadata service was unreachable during change evaluation."
     }
   ],
   "completeness_breakdown": [
     {
       "signal_name": "SCHEMA_VERIFIED",
-      "is_present": true,
+      "is_present": false,
       "weight": 25.0,
-      "description": "Current schema snapshot verified against DataHub (DEMO_FIXTURE)"
+      "description": "DataHub GMS metadata catalog unavailable or unreachable."
     },
     {
       "signal_name": "COLUMN_LINEAGE_AVAILABLE",
       "is_present": false,
       "weight": 25.0,
-      "description": "Fine-grained column-level lineage verified across downstream models"
+      "description": "Column-level lineage could not be retrieved from DataHub."
     },
     {
       "signal_name": "QUERY_USAGE_HISTORY",
       "is_present": false,
       "weight": 20.0,
-      "description": "Query execution log history inspected for exact column references"
+      "description": "Query execution log history unavailable."
     },
     {
       "signal_name": "OWNERSHIP_ASSIGNED",
-      "is_present": true,
+      "is_present": false,
       "weight": 15.0,
-      "description": "Technical and business owners identified for all affected assets"
+      "description": "Asset ownership unverified due to catalog connection failure."
     },
     {
       "signal_name": "EXACT_LINEAGE_PATH_VERIFIED",
       "is_present": false,
       "weight": 15.0,
-      "description": "Multi-hop lineage paths fully traced from root dataset to end consumers"
+      "description": "Multi-hop lineage tracing unavailable."
     }
   ],
-  "policy_triggered": "LOW: Non-breaking or additive schema change with no confirmed downstream breaks."
+  "policy_triggered": "INSUFFICIENT EVIDENCE: Catalog context missing for proposed change."
 }

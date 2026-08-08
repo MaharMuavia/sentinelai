@@ -10,6 +10,7 @@ class SchemaParseResult(BaseModel):
     error: Optional[str] = None
     before_snapshot: Optional[SchemaSnapshot] = None
     after_snapshot: Optional[SchemaSnapshot] = None
+    snapshot: Optional[SchemaSnapshot] = None
     explicit_renames: Dict[str, str] = {}
 
 
@@ -17,9 +18,35 @@ class SchemaParserEngine:
     """
     SQL DDL & Schema Parser Engine.
     Parses CREATE, ALTER, DROP, RENAME SQL statements using SQLGlot AST traversal.
-    Does NOT depend on hardcoded base schemas.
+    Mandates base schema context for ALTER operations to prevent bogus empty table states.
     Returns structured parse results with explicit error details on malformed SQL.
     """
+
+    @staticmethod
+    def parse_create_table(sql: str, dataset_name: str, dataset_urn: str) -> SchemaParseResult:
+        """Parse CREATE TABLE statement into SchemaSnapshot."""
+        if not sql or not sql.strip():
+            return SchemaParseResult(success=False, error="Empty SQL DDL string")
+
+        dataset_id = DatasetIdentifier(urn=dataset_urn, name=dataset_name)
+        try:
+            parsed = sqlglot.parse(sql, read="snowflake")
+            if not parsed or not parsed[0]:
+                return SchemaParseResult(success=False, error="Empty SQL AST")
+            stmt = parsed[0]
+            if isinstance(stmt, Create):
+                fields = []
+                for col in stmt.find_all(ColumnDef):
+                    col_name = col.name
+                    col_kind = col.args.get("kind")
+                    type_str = col_kind.name.upper() if col_kind else "STRING"
+                    fields.append(SchemaField(name=col_name, type=type_str, nullable=True))
+                snap = SchemaSnapshot(dataset=dataset_id, fields=fields)
+                return SchemaParseResult(success=True, snapshot=snap, after_snapshot=snap)
+        except Exception as e:
+            return SchemaParseResult(success=False, error=f"SQL Syntax Error: {str(e)}")
+
+        return SchemaParseResult(success=False, error="Statement is not a CREATE TABLE DDL")
 
     @staticmethod
     def parse_sql_ddl_alter(
@@ -70,13 +97,19 @@ class SchemaParserEngine:
             return SchemaParseResult(
                 success=True,
                 before_snapshot=before_snap,
-                after_snapshot=after_snap
+                after_snapshot=after_snap,
+                snapshot=after_snap
             )
 
         # 2. Handle ALTER TABLE DDL
         elif isinstance(stmt, Alter):
-            # Base snapshot must be provided or defaults to empty (no hardcoding)
-            before_snap = base_schema or SchemaSnapshot(dataset=dataset_id, fields=[])
+            if not base_schema or not base_schema.fields:
+                return SchemaParseResult(
+                    success=False,
+                    error="INSUFFICIENT_SCHEMA_CONTEXT: Base schema is mandatory for ALTER TABLE DDL processing. Retrieve current catalog schema from DataHub first."
+                )
+
+            before_snap = base_schema
             after_fields = list(before_snap.fields)
             explicit_renames: Dict[str, str] = {}
 
@@ -107,7 +140,6 @@ class SchemaParserEngine:
                 added_col = col.name
                 col_kind = col.args.get("kind")
                 added_type = col_kind.name.upper() if col_kind else "STRING"
-                # Avoid duplicate addition if already present
                 if not any(f.name.lower() == added_col.lower() for f in after_fields):
                     after_fields.append(SchemaField(name=added_col, type=added_type, nullable=True))
 
@@ -116,6 +148,7 @@ class SchemaParserEngine:
                 success=True,
                 before_snapshot=before_snap,
                 after_snapshot=after_snap,
+                snapshot=after_snap,
                 explicit_renames=explicit_renames
             )
 
@@ -124,3 +157,7 @@ class SchemaParserEngine:
                 success=False,
                 error=f"Unsupported DDL statement type '{type(stmt).__name__}'. Sentinel supports CREATE TABLE and ALTER TABLE DDL."
             )
+
+
+# Alias for compatibility
+DDLParser = SchemaParserEngine

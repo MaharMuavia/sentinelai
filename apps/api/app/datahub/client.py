@@ -1,3 +1,4 @@
+import os
 import time
 import datetime
 import logging
@@ -6,6 +7,7 @@ from typing import Dict, Any, List, Optional
 import httpx
 from pydantic import BaseModel, Field
 from app.config import settings
+from app.datahub.mcp_client import DataHubMCPClient
 
 logger = logging.getLogger("sentinel.datahub")
 
@@ -64,10 +66,10 @@ class ColumnLineageEdge(BaseModel):
 
 
 class QueryReference(BaseModel):
-    query_id: str
+    query_id: Optional[str] = None
     query_text: str
-    last_executed: str
-    user: str
+    last_executed: Optional[str] = None
+    user: Optional[str] = None
     provenance: Optional[DataHubProvenance] = None
 
 
@@ -75,7 +77,7 @@ class DataHubClient:
     """
     Official DataHub MCP / Agent Context Integration Client.
     Provides typed, provenance-backed access to DataHub metadata, entity schemas,
-    multi-hop lineage graphs, and historical query executions.
+    multi-hop lineage graphs, and historical query executions via JSON-RPC 2.0 MCP protocol.
     Strictly distinguishes between LIVE_DATAHUB, DEMO_FIXTURE, and DATAHUB_UNAVAILABLE.
     """
 
@@ -84,56 +86,54 @@ class DataHubClient:
     def __init__(self, gms_url: Optional[str] = None, token: Optional[str] = None):
         self.gms_url = (gms_url or settings.DATAHUB_GMS_URL).rstrip("/")
         self.token = token or settings.DATAHUB_GMS_TOKEN
-        self.headers = {"Content-Type": "application/json"}
-        if self.token:
-            self.headers["Authorization"] = f"Bearer {self.token}"
+        self.mcp_client = DataHubMCPClient(gms_url=self.gms_url, token=self.token)
 
     async def check_connection(self) -> bool:
-        """Check if live DataHub GMS instance is reachable."""
+        """Check if live DataHub GMS / MCP server is reachable."""
         now = time.time()
         if "connected" in self._connection_cache and (now - self._connection_cache.get("ts", 0) < 5.0):
             return self._connection_cache["connected"]
 
-        connected = False
-        try:
-            async with httpx.AsyncClient(timeout=1.0) as client:
-                res = await client.get(f"{self.gms_url}/health", headers=self.headers)
-                connected = (res.status_code == 200)
-        except Exception:
-            connected = False
-
+        connected = await self.mcp_client.check_connection()
         self._connection_cache["connected"] = connected
         self._connection_cache["ts"] = now
         return connected
 
-    async def get_integration_mode(self, allow_fixture_fallback: bool = True) -> IntegrationMode:
+    async def get_integration_mode(self, allow_fixture_fallback: bool = False) -> IntegrationMode:
+        """
+        Determines current integration mode based on config and connection.
+        If SENTINEL_DATA_MODE == 'fixture', returns DEMO_FIXTURE.
+        If SENTINEL_DATA_MODE == 'live', requires live DataHub GMS connection.
+        If live connection fails and allow_fixture_fallback is False, returns DATAHUB_UNAVAILABLE.
+        """
+        configured_mode = os.getenv("SENTINEL_DATA_MODE", getattr(settings, "SENTINEL_DATA_MODE", "live")).lower()
+        if configured_mode == "fixture":
+            return IntegrationMode.DEMO_FIXTURE
+
         if await self.check_connection():
             return IntegrationMode.LIVE_DATAHUB
+
         if allow_fixture_fallback:
             return IntegrationMode.DEMO_FIXTURE
+
         return IntegrationMode.DATAHUB_UNAVAILABLE
 
     async def get_dataset(
-        self, urn: str, allow_fixture_fallback: bool = True
+        self, urn: str, allow_fixture_fallback: bool = False
     ) -> Optional[DatasetMetadata]:
-        """Fetch dataset metadata including schema, owners, and tags with full provenance."""
+        """Fetch dataset metadata including schema, owners, and tags via DataHub MCP."""
         mode = await self.get_integration_mode(allow_fixture_fallback)
 
         if mode == IntegrationMode.LIVE_DATAHUB:
-            try:
-                async with httpx.AsyncClient(timeout=5.0) as client:
-                    res = await client.get(
-                        f"{self.gms_url}/entities/v2/dataset/{urn}",
-                        headers=self.headers
-                    )
-                    if res.status_code == 200:
-                        data = res.json()
-                        return self._parse_live_dataset(urn, data)
-            except Exception as e:
-                logger.warning(f"Failed to fetch live dataset URN {urn} from DataHub: {e}")
-                if not allow_fixture_fallback:
-                    return None
-                mode = IntegrationMode.DEMO_FIXTURE
+            res = await self.mcp_client.get_entities([urn])
+            if res.success and res.content:
+                return self._parse_mcp_dataset(urn, res.content)
+            fields_res = await self.mcp_client.list_schema_fields(urn)
+            if fields_res.success:
+                return self._parse_mcp_fields_result(urn, fields_res.content)
+            if not allow_fixture_fallback:
+                return None
+            mode = IntegrationMode.DEMO_FIXTURE
 
         if mode == IntegrationMode.DEMO_FIXTURE:
             return self._get_fixture_dataset(urn)
@@ -142,66 +142,33 @@ class DataHubClient:
         return None
 
     async def get_downstream_lineage(
-        self, urn: str, max_depth: int = 3, allow_fixture_fallback: bool = True
+        self, urn: str, max_depth: int = 3, allow_fixture_fallback: bool = False
     ) -> List[Dict[str, Any]]:
-        """Fetch downstream lineage graph for the dataset."""
+        """Fetch downstream lineage graph for the dataset via DataHub MCP get_lineage."""
         mode = await self.get_integration_mode(allow_fixture_fallback)
 
         if mode == IntegrationMode.LIVE_DATAHUB:
-            try:
-                async with httpx.AsyncClient(timeout=5.0) as client:
-                    query = """
-                    query searchAcrossLineage($urn: String!) {
-                        searchAcrossLineage(input: { urn: $urn, direction: DOWNSTREAM, types: ["dataset", "dashboard", "mlModel"], start: 0, count: 100 }) {
-                            searchResults {
-                                entity {
-                                    urn
-                                    type
-                                    ... on Dataset { name platform { name } }
-                                    ... on Dashboard { name tool }
-                                    ... on MLModel { name platform { name } }
-                                }
-                                degree
-                            }
-                        }
-                    }
-                    """
-                    res = await client.post(
-                        f"{self.gms_url}/api/graphql",
-                        json={"query": query, "variables": {"urn": urn}},
-                        headers=self.headers
-                    )
-                    if res.status_code == 200:
-                        data = res.json()
-                        results = data.get("data", {}).get("searchAcrossLineage", {}).get("searchResults", [])
-                        parsed = []
-                        for r in results:
-                            entity = r["entity"]
-                            e_type = entity.get("type", "")
-                            if e_type == "DATASET":
-                                platform = entity.get("platform", {}).get("name", "unknown")
-                            elif e_type == "DASHBOARD":
-                                platform = entity.get("tool", "unknown")
-                            elif e_type == "MLMODEL":
-                                platform = entity.get("platform", {}).get("name", "unknown")
-                            else:
-                                platform = "unknown"
-
-                            parsed.append({
-                                "entity": entity.get("urn"),
-                                "type": e_type,
-                                "name": entity.get("name", entity.get("urn")),
-                                "platform": platform,
-                                "depth": r.get("degree", 1),
-                                "source_mode": IntegrationMode.LIVE_DATAHUB.value,
-                                "source_tool": "datahub_graphql_searchAcrossLineage"
-                            })
-                        return parsed
-            except Exception as e:
-                logger.warning(f"Failed to fetch live lineage for {urn}: {e}")
-                if not allow_fixture_fallback:
-                    return []
-                mode = IntegrationMode.DEMO_FIXTURE
+            res = await self.mcp_client.get_lineage(urn, direction="DOWNSTREAM", depth=max_depth)
+            if res.success and res.content:
+                parsed = []
+                nodes = res.content.get("nodes", res.content.get("searchResults", []))
+                for node in nodes:
+                    entity_urn = node.get("urn", node.get("entity", {}).get("urn", ""))
+                    e_type = node.get("type", node.get("entity", {}).get("type", "DATASET"))
+                    name = node.get("name", entity_urn.split(",")[-2] if "," in entity_urn else entity_urn)
+                    parsed.append({
+                        "entity": entity_urn,
+                        "type": e_type,
+                        "name": name,
+                        "platform": node.get("platform", "unknown"),
+                        "depth": node.get("degree", 1),
+                        "source_mode": IntegrationMode.LIVE_DATAHUB.value,
+                        "source_tool": "get_lineage"
+                    })
+                return parsed
+            if not allow_fixture_fallback:
+                return []
+            mode = IntegrationMode.DEMO_FIXTURE
 
         if mode == IntegrationMode.DEMO_FIXTURE:
             return self._get_fixture_downstream_lineage(urn)
@@ -209,59 +176,39 @@ class DataHubClient:
         return []
 
     async def get_column_lineage(
-        self, source_urn: str, source_field: str, allow_fixture_fallback: bool = True
+        self, source_urn: str, source_field: str, allow_fixture_fallback: bool = False
     ) -> List[ColumnLineageEdge]:
-        """Fetch fine-grained column-level lineage with explicit provenance."""
+        """Fetch fine-grained column-level lineage via DataHub MCP get_lineage."""
         mode = await self.get_integration_mode(allow_fixture_fallback)
 
         if mode == IntegrationMode.LIVE_DATAHUB:
-            try:
-                async with httpx.AsyncClient(timeout=5.0) as client:
-                    query = """
-                    query dataset($urn: String!) {
-                        dataset(urn: $urn) {
-                            fineGrainedLineages {
-                                downstreamType
-                                downstreams { urn }
-                                upstreams { urn }
-                            }
-                        }
-                    }
-                    """
-                    res = await client.post(
-                        f"{self.gms_url}/api/graphql",
-                        json={"query": query, "variables": {"urn": source_urn}},
-                        headers=self.headers
-                    )
-                    if res.status_code == 200:
-                        edges = []
-                        data = res.json()
-                        lineages = data.get("data", {}).get("dataset", {}).get("fineGrainedLineages", []) or []
-                        for lin in lineages:
-                            upstreams = [u["urn"] for u in lin.get("upstreams", [])]
-                            downstreams = [d["urn"] for d in lin.get("downstreams", [])]
-                            if any(source_field in u for u in upstreams):
-                                for d in downstreams:
-                                    target_urn = d.split("/schemaField/")[0]
-                                    target_field = d.split("/schemaField/")[-1] if "/schemaField/" in d else d
-                                    edges.append(ColumnLineageEdge(
-                                        source_urn=source_urn,
-                                        source_field=source_field,
-                                        target_urn=target_urn,
-                                        target_field=target_field,
-                                        provenance=DataHubProvenance(
-                                            source_mode=IntegrationMode.LIVE_DATAHUB,
-                                            source_tool="datahub_graphql_fineGrainedLineages",
-                                            entity_urn=source_urn,
-                                            field_path=source_field
-                                        )
-                                    ))
-                        return edges
-            except Exception as e:
-                logger.warning(f"Live column lineage failed for {source_urn}: {e}")
-                if not allow_fixture_fallback:
-                    return []
-                mode = IntegrationMode.DEMO_FIXTURE
+            res = await self.mcp_client.get_lineage(source_urn, direction="DOWNSTREAM", depth=3)
+            if res.success and res.content:
+                edges = []
+                fine_lineages = res.content.get("fineGrainedLineages", [])
+                for lin in fine_lineages:
+                    upstreams = lin.get("upstreams", [])
+                    downstreams = lin.get("downstreams", [])
+                    if any(source_field in u for u in upstreams):
+                        for d in downstreams:
+                            target_urn = d.split("/schemaField/")[0]
+                            target_field = d.split("/schemaField/")[-1] if "/schemaField/" in d else d
+                            edges.append(ColumnLineageEdge(
+                                source_urn=source_urn,
+                                source_field=source_field,
+                                target_urn=target_urn,
+                                target_field=target_field,
+                                provenance=DataHubProvenance(
+                                    source_mode=IntegrationMode.LIVE_DATAHUB,
+                                    source_tool="get_lineage",
+                                    entity_urn=source_urn,
+                                    field_path=source_field
+                                )
+                            ))
+                return edges
+            if not allow_fixture_fallback:
+                return []
+            mode = IntegrationMode.DEMO_FIXTURE
 
         if mode == IntegrationMode.DEMO_FIXTURE:
             return self._get_fixture_column_lineage(source_urn, source_field)
@@ -269,125 +216,107 @@ class DataHubClient:
         return []
 
     async def get_dataset_queries(
-        self, urn: str, field_name: Optional[str] = None, allow_fixture_fallback: bool = True
+        self, urn: str, field_name: Optional[str] = None, allow_fixture_fallback: bool = False
     ) -> List[QueryReference]:
-        """Fetch historical query executions referencing dataset and field."""
+        """Fetch historical query executions via DataHub MCP get_dataset_queries."""
         mode = await self.get_integration_mode(allow_fixture_fallback)
 
         if mode == IntegrationMode.LIVE_DATAHUB:
-            try:
-                async with httpx.AsyncClient(timeout=5.0) as client:
-                    query = """
-                    query getQueries($urn: String!) {
-                        dataset(urn: $urn) {
-                            queries(start: 0, count: 10) {
-                                elements {
-                                    query {
-                                        properties {
-                                            statement { value }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    """
-                    res = await client.post(
-                        f"{self.gms_url}/api/graphql",
-                        json={"query": query, "variables": {"urn": urn}},
-                        headers=self.headers
-                    )
-                    if res.status_code == 200:
-                        parsed = []
-                        data = res.json()
-                        elements = data.get("data", {}).get("dataset", {}).get("queries", {}).get("elements", [])
-                        for i, el in enumerate(elements):
-                            stmt = el.get("query", {}).get("properties", {}).get("statement", {}).get("value", "")
-                            if not field_name or field_name.lower() in stmt.lower():
-                                parsed.append(QueryReference(
-                                    query_id=f"q_live_{i}",
-                                    query_text=stmt,
-                                    last_executed=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                                    user="datahub_query_log",
-                                    provenance=DataHubProvenance(
-                                        source_mode=IntegrationMode.LIVE_DATAHUB,
-                                        source_tool="datahub_graphql_dataset_queries",
-                                        entity_urn=urn,
-                                        field_path=field_name
-                                    )
-                                ))
-                        return parsed
-            except Exception as e:
-                logger.warning(f"Live dataset queries failed for {urn}: {e}")
-                if not allow_fixture_fallback:
-                    return []
-                mode = IntegrationMode.DEMO_FIXTURE
+            res = await self.mcp_client.get_dataset_queries(urn)
+            if res.success and res.content:
+                queries_raw = res.content.get("queries", res.content.get("elements", []))
+                parsed = []
+                for q in queries_raw:
+                    stmt = q.get("query_text", q.get("query", {}).get("properties", {}).get("statement", {}).get("value", ""))
+                    if stmt and (not field_name or field_name.lower() in stmt.lower()):
+                        # Honest storage: do NOT synthesize fake IDs or user timestamps if absent
+                        parsed.append(QueryReference(
+                            query_id=q.get("query_id"),
+                            query_text=stmt,
+                            last_executed=q.get("last_executed"),
+                            user=q.get("user"),
+                            provenance=DataHubProvenance(
+                                source_mode=IntegrationMode.LIVE_DATAHUB,
+                                source_tool="get_dataset_queries",
+                                entity_urn=urn,
+                                field_path=field_name
+                            )
+                        ))
+                return parsed
+            if not allow_fixture_fallback:
+                return []
+            mode = IntegrationMode.DEMO_FIXTURE
 
         if mode == IntegrationMode.DEMO_FIXTURE:
             return self._get_fixture_queries(urn, field_name)
 
         return []
 
-    # --- Live DataHub Parsing Helper ---
+    # --- DataHub MCP Result Parsers ---
 
-    def _parse_live_dataset(self, urn: str, data: Dict[str, Any]) -> DatasetMetadata:
-        aspects = data.get("aspects", {})
-
+    def _parse_mcp_dataset(self, urn: str, content: Dict[str, Any]) -> DatasetMetadata:
+        entity = content.get("entity", content)
         fields = []
-        schema_metadata = aspects.get("schemaMetadata", {})
-        if schema_metadata and "value" in schema_metadata:
-            for f in schema_metadata["value"].get("fields", []):
-                fields.append(SchemaFieldMetadata(
-                    field_path=f.get("fieldPath", ""),
-                    type=f.get("nativeDataType", "STRING"),
-                    nullable=f.get("nullable", True),
-                    description=f.get("description", "")
-                ))
+        for f in entity.get("fields", entity.get("schema", {}).get("fields", [])):
+            fields.append(SchemaFieldMetadata(
+                field_path=f.get("fieldPath", f.get("name", "")),
+                type=f.get("nativeDataType", f.get("type", "STRING")),
+                nullable=f.get("nullable", True),
+                description=f.get("description", "")
+            ))
 
         owners = []
-        ownership = aspects.get("ownership", {})
-        if ownership and "value" in ownership:
-            for o in ownership["value"].get("owners", []):
-                owners.append(EntityOwner(
-                    owner_urn=o.get("owner", ""),
-                    name=o.get("owner", "").split(":")[-1],
-                    email="",
-                    type=o.get("type", "TECHNICAL_OWNER")
-                ))
-
-        tags = []
-        global_tags = aspects.get("globalTags", {})
-        if global_tags and "value" in global_tags:
-            for t in global_tags["value"].get("tags", []):
-                tags.append(t.get("tag", "").replace("urn:li:tag:", ""))
-
-        domain = None
-        domains = aspects.get("domains", {})
-        if domains and "value" in domains:
-            domain_urns = domains["value"].get("domains", [])
-            if domain_urns:
-                domain = domain_urns[0].replace("urn:li:domain:", "")
-
-        dataset_name = data.get("entityName", urn.split(",")[-2] if "," in urn else urn)
+        for o in entity.get("owners", []):
+            owners.append(EntityOwner(
+                owner_urn=o.get("owner", ""),
+                name=o.get("name", o.get("owner", "").split(":")[-1]),
+                email=o.get("email", ""),
+                type=o.get("type", "TECHNICAL_OWNER")
+            ))
 
         return DatasetMetadata(
             urn=urn,
-            name=dataset_name,
-            platform=urn.split(",")[0].split(":")[-1] if "," in urn else "unknown",
-            description=aspects.get("datasetProperties", {}).get("value", {}).get("description", "DataHub Catalog Asset"),
+            name=entity.get("name", urn.split(",")[-2] if "," in urn else urn),
+            platform=entity.get("platform", urn.split(",")[0].split(":")[-1] if "," in urn else "unknown"),
+            description=entity.get("description", "DataHub Catalog Asset"),
             owners=owners,
-            tags=tags,
-            domain=domain,
+            tags=entity.get("tags", []),
+            domain=entity.get("domain"),
             fields=fields,
             is_demo_fixture=False,
             provenance=DataHubProvenance(
                 source_mode=IntegrationMode.LIVE_DATAHUB,
-                source_tool="datahub_gms_entities_v2",
+                source_tool="get_entities",
                 entity_urn=urn
             )
         )
 
-    # --- Explicit Demo Fixtures (Isolated & Labeled) ---
+    def _parse_mcp_fields_result(self, urn: str, content: Dict[str, Any]) -> DatasetMetadata:
+        raw_fields = content.get("fields", content.get("schemaFields", [])) if isinstance(content, dict) else []
+        fields = [
+            SchemaFieldMetadata(
+                field_path=f.get("fieldPath", f.get("name", "")),
+                type=f.get("type", "STRING"),
+                nullable=f.get("nullable", True),
+                description=f.get("description", "")
+            )
+            for f in raw_fields
+        ]
+        return DatasetMetadata(
+            urn=urn,
+            name=urn.split(",")[-2] if "," in urn else urn,
+            platform="snowflake",
+            description="DataHub Catalog Asset",
+            fields=fields,
+            is_demo_fixture=False,
+            provenance=DataHubProvenance(
+                source_mode=IntegrationMode.LIVE_DATAHUB,
+                source_tool="list_schema_fields",
+                entity_urn=urn
+            )
+        )
+
+    # --- Explicit Demo Fixtures (Isolated & Explicitly Labeled) ---
 
     def _get_fixture_dataset(self, urn: str) -> DatasetMetadata:
         mock_db = {

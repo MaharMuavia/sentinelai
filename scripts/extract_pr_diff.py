@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """
-Sentinel AI - Extract PR Schema Diff Helper Script for GitHub Actions CI/CD.
-Inspects actual git diff or PR payload to extract schema modifications for Sentinel investigation.
+Sentinel AI — Extract PR Schema Diff Helper Script for GitHub Actions CI/CD.
+Extracts actual git diff between BASE_SHA and HEAD_SHA, maps modified files to DataHub URNs via sentinel_config.json,
+and parses before/after schemas deterministically.
+Eliminates fake hardcoded fallbacks.
 """
+
 import sys
 import os
 import json
@@ -10,75 +13,163 @@ import argparse
 import subprocess
 from pathlib import Path
 
+# Add apps/api to path for schema engine imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "apps", "api")))
 
-def extract_git_diff():
-    """Extract changed SQL/dbt files from current git working directory or branch diff."""
-    changed_files = []
+from app.schema_engine.parser import DDLParser
+from app.schema_engine.diff import SchemaDiffEngine, SchemaSnapshot, DatasetIdentifier, SchemaField
+
+
+def get_git_file_at_commit(commit_sha: str, file_path: str) -> str:
+    """Retrieve contents of a file at a specific git commit SHA."""
     try:
-        # Try diff against main or HEAD~1
         res = subprocess.run(
-            ["git", "diff", "--name-only", "HEAD~1"],
+            ["git", "show", f"{commit_sha}:{file_path}"],
             capture_output=True,
             text=True,
-            check=False
+            check=True
         )
-        if res.returncode == 0 and res.stdout.strip():
-            changed_files = [f.strip() for f in res.stdout.splitlines() if f.strip().endswith(".sql")]
-    except Exception:
-        pass
-    return changed_files
+        return res.stdout
+    except Exception as e:
+        print(f"[Sentinel AI] Warning: Could not retrieve {file_path} at commit {commit_sha}: {e}")
+        return ""
+
+
+def load_sentinel_config() -> dict:
+    """Load dataset URN repository mapping from sentinel_config.json."""
+    config_path = Path("sentinel_config.json")
+    if config_path.exists():
+        try:
+            return json.loads(config_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"[Sentinel AI] Error reading sentinel_config.json: {e}")
+    return {"datasets": {}}
+
+
+def extract_git_changed_files(base_sha: str, head_sha: str) -> list:
+    """Get list of modified files between base_sha and head_sha."""
+    try:
+        res = subprocess.run(
+            ["git", "diff", "--name-only", f"{base_sha}...{head_sha}"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        return [f.strip() for f in res.stdout.splitlines() if f.strip()]
+    except Exception as e:
+        print(f"[Sentinel AI] Warning: Could not run git diff for {base_sha}...{head_sha}: {e}")
+        return []
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Extract schema diff from pull request")
+    parser = argparse.ArgumentParser(description="Extract schema diff from pull request commits")
+    parser.add_argument("--base", type=str, default=None, help="Base commit SHA (github.event.pull_request.base.sha)")
+    parser.add_argument("--head", type=str, default=None, help="Head commit SHA (github.event.pull_request.head.sha)")
     parser.add_argument("--pr", type=int, default=None, help="Pull Request Number")
+    parser.add_argument("--fixture", type=str, default=None, help="Explicit fixture file path for local demo/testing")
     parser.add_argument("--output", type=str, default="sentinel_diff.json", help="Output artifact path")
     args = parser.parse_args()
 
+    out_path = Path(args.output)
+
+    # 1. Handle Explicit Local Fixture Mode (Only when explicitly passed via --fixture)
+    if args.fixture:
+        fixture_path = Path(args.fixture)
+        if not fixture_path.exists():
+            print(f"[Sentinel AI] Error: Specified fixture file '{args.fixture}' does not exist.")
+            sys.exit(1)
+
+        print(f"[Sentinel AI] Extracting PR diff from explicit fixture '{args.fixture}'...")
+        fixture_data = json.loads(fixture_path.read_text(encoding="utf-8"))
+        out_path.write_text(json.dumps(fixture_data, indent=2), encoding="utf-8")
+        print(f"[Sentinel AI] Saved diff artifact to '{out_path}'.")
+        sys.exit(0)
+
+    base_sha = args.base or os.getenv("BASE_SHA") or os.getenv("GITHUB_BASE_SHA")
+    head_sha = args.head or os.getenv("HEAD_SHA") or os.getenv("GITHUB_HEAD_SHA")
     pr_num = args.pr or int(os.getenv("GITHUB_PR_NUMBER", "0"))
-    print(f"[Sentinel AI] Extracting PR diff for PR #{pr_num if pr_num > 0 else 'Local'}...")
 
-    changed_sql_files = extract_git_diff()
+    if not base_sha or not head_sha:
+        print("[Sentinel AI] Error: Missing BASE_SHA or HEAD_SHA. Cannot extract PR diff without explicit commits.")
+        diff_payload = {
+            "pr_number": pr_num,
+            "status": "ERROR_MISSING_COMMITS",
+            "error": "BASE_SHA or HEAD_SHA not provided"
+        }
+        out_path.write_text(json.dumps(diff_payload, indent=2), encoding="utf-8")
+        sys.exit(1)
 
-    # Default target dataset mapping
-    dataset_urn = os.getenv("SENTINEL_DATASET_URN", "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)")
+    print(f"[Sentinel AI] Extracting PR diff between BASE={base_sha[:7]} and HEAD={head_sha[:7]} for PR #{pr_num}...")
 
-    # Build schema snapshot before & after from actual PR diff or canonical demo structure
-    before_fields = [
-        {"name": "customer_id", "type": "STRING", "nullable": False},
-        {"name": "email", "type": "STRING", "nullable": True},
-        {"name": "country", "type": "STRING", "nullable": True},
-        {"name": "created_at", "type": "TIMESTAMP", "nullable": False}
-    ]
+    config = load_sentinel_config()
+    dataset_mappings = config.get("datasets", {})
 
-    # If git diff shows modified files or PR scenario, construct after fields
-    # Check if env or file specifies additive vs breaking
-    scenario = os.getenv("SENTINEL_TEST_SCENARIO", "BREAKING_EMAIL_REMOVAL")
+    changed_files = extract_git_changed_files(base_sha, head_sha)
+    mapped_file = None
+    target_urn = None
 
-    if scenario == "SAFE_ADDITIVE":
-        after_fields = list(before_fields) + [{"name": "signup_source", "type": "STRING", "nullable": True}]
-    else:
-        # Default breaking email removal scenario
-        after_fields = [f for f in before_fields if f["name"] != "email"]
+    for cf in changed_files:
+        if cf in dataset_mappings:
+            mapped_file = cf
+            target_urn = dataset_mappings[cf]
+            break
+
+    if not mapped_file or not target_urn:
+        print(f"[Sentinel AI] Warning: None of the changed files ({changed_files}) match mapped datasets in sentinel_config.json.")
+        diff_payload = {
+            "pr_number": pr_num,
+            "base_sha": base_sha,
+            "head_sha": head_sha,
+            "changed_files": changed_files,
+            "status": "UNMAPPED_DATASET",
+            "error": f"No mapped dataset for changed files: {changed_files}"
+        }
+        out_path.write_text(json.dumps(diff_payload, indent=2), encoding="utf-8")
+        sys.exit(0)
+
+    # Fetch file content at BASE and HEAD
+    base_content = get_git_file_at_commit(base_sha, mapped_file)
+    head_content = get_git_file_at_commit(head_sha, mapped_file)
+
+    if not base_content or not head_content:
+        print(f"[Sentinel AI] Error: Failed to fetch contents of '{mapped_file}' at base ({base_sha[:7]}) or head ({head_sha[:7]}).")
+        diff_payload = {
+            "pr_number": pr_num,
+            "status": "UNSUPPORTED_CHANGE",
+            "error": f"Could not read {mapped_file} contents from git commits"
+        }
+        out_path.write_text(json.dumps(diff_payload, indent=2), encoding="utf-8")
+        sys.exit(1)
+
+    # Parse before and after schemas
+    dataset_name = target_urn.split(",")[-2] if "," in target_urn else mapped_file.split("/")[-1].replace(".sql", "")
+    before_parse = DDLParser.parse_create_table(base_content, dataset_name=dataset_name, dataset_urn=target_urn)
+    after_parse = DDLParser.parse_create_table(head_content, dataset_name=dataset_name, dataset_urn=target_urn)
+
+    if not before_parse.success or not after_parse.success or not before_parse.snapshot or not after_parse.snapshot:
+        print(f"[Sentinel AI] Error: DDL parsing failed for '{mapped_file}'.")
+        diff_payload = {
+            "pr_number": pr_num,
+            "status": "UNSUPPORTED_CHANGE",
+            "error": f"DDL parse error: {before_parse.error_message or after_parse.error_message}"
+        }
+        out_path.write_text(json.dumps(diff_payload, indent=2), encoding="utf-8")
+        sys.exit(1)
 
     diff_payload = {
         "pr_number": pr_num,
-        "dataset_urn": dataset_urn,
-        "changed_files": changed_sql_files,
-        "before_schema": {
-            "dataset": {"urn": dataset_urn, "name": "raw_customers"},
-            "fields": before_fields
-        },
-        "after_schema": {
-            "dataset": {"urn": dataset_urn, "name": "raw_customers"},
-            "fields": after_fields
-        },
+        "base_sha": base_sha,
+        "head_sha": head_sha,
+        "dataset_urn": target_urn,
+        "mapped_file": mapped_file,
+        "changed_files": changed_files,
+        "before_schema": before_parse.snapshot.model_dump(),
+        "after_schema": after_parse.snapshot.model_dump(),
         "status": "EXTRACTED"
     }
 
-    out_path = Path(args.output)
     out_path.write_text(json.dumps(diff_payload, indent=2), encoding="utf-8")
-    print(f"[Sentinel AI] Schema diff extraction complete. Saved artifact to '{out_path}'.")
+    print(f"[Sentinel AI] Successfully extracted schema diff for {target_urn}. Saved artifact to '{out_path}'.")
 
 
 if __name__ == "__main__":
