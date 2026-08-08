@@ -1,21 +1,22 @@
 {
   "severity": "CRITICAL",
+  "verdict": "BLOCK",
   "evidence_completeness": 100.0,
   "risk_factors": [
     {
       "name": "BREAKING_SCHEMA_CHANGE",
       "impact": "HIGH",
-      "description": "1 breaking schema modification(s) detected (e.g. Field 'email' removed from dataset)"
+      "description": "1 breaking schema modification(s) detected (e.g. Field 'email' removed from dataset schema)"
     },
     {
       "name": "CONFIRMED_DOWNSTREAM_CONSUMERS",
       "impact": "HIGH",
-      "description": "4 downstream asset(s) are confirmed users of the modified column."
+      "description": "4 downstream asset(s) are confirmed users of modified field(s)."
     },
     {
       "name": "CRITICAL_BUSINESS_ASSET_IMPACT",
       "impact": "CRITICAL",
-      "description": "Affected downstream assets include Tier-1 Executive Dashboards and Production ML Models."
+      "description": "Affected downstream consumers include Executive Dashboards and Production ML Models."
     }
   ],
   "completeness_breakdown": [
@@ -23,7 +24,7 @@
       "signal_name": "SCHEMA_VERIFIED",
       "is_present": true,
       "weight": 25.0,
-      "description": "Current schema snapshot verified against DataHub GMS metadata catalog"
+      "description": "Current schema snapshot verified against DataHub (DEMO_FIXTURE)"
     },
     {
       "signal_name": "COLUMN_LINEAGE_AVAILABLE",
@@ -50,5 +51,5 @@
       "description": "Multi-hop lineage paths fully traced from root dataset to end consumers"
     }
   ],
-  "policy_triggered": "CRITICAL: Breaking schema operation on verified field with confirmed critical downstream dashboards/ML models"
+  "policy_triggered": "CRITICAL BLOCK: Breaking schema change on field with confirmed downstream executive dashboards or ML models."
 }

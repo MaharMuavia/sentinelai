@@ -22,6 +22,7 @@ export interface InvestigationSummary {
 export interface InvestigationDetail extends InvestigationSummary {
   changes: any;
   evidence_bundle: any;
+  risk_assessment?: any;
   ai_explanation: any;
   remediation?: any;
 }

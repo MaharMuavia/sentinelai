@@ -1,10 +1,11 @@
 {
   "dataset_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
   "dataset_name": "raw_customers",
+  "integration_mode": "DEMO_FIXTURE",
   "changes": {
     "dataset_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
     "source": "github_pr",
-    "timestamp": "2026-08-08T07:48:35.605676",
+    "timestamp": "2026-08-08T10:04:24.656909+00:00",
     "changes": [
       {
         "field": "signup_source",
@@ -16,7 +17,7 @@
           "nullable": true
         },
         "is_breaking": false,
-        "details": "New field 'signup_source' added to dataset"
+        "details": "New field 'signup_source' added to dataset schema"
       }
     ]
   },
@@ -42,16 +43,32 @@
           "source_field": null,
           "target_field": null,
           "query_reference": null,
-          "description": "DataHub downstream lineage path (hop distance: 1)"
+          "description": "DataHub downstream table lineage path (hop distance: 1)",
+          "provenance": {
+            "source_mode": "DEMO_FIXTURE",
+            "source_tool": "sentinel_demo_fixture_db",
+            "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
+            "field_path": null,
+            "retrieved_at": "2026-08-08T10:04:25.921967+00:00",
+            "source_reference": "demo_fixtures/customer_360.json"
+          }
         }
-      ]
+      ],
+      "provenance": {
+        "source_mode": "DEMO_FIXTURE",
+        "source_tool": "sentinel_demo_fixture_db",
+        "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
+        "field_path": null,
+        "retrieved_at": "2026-08-08T10:04:25.921967+00:00",
+        "source_reference": "demo_fixtures/customer_360.json"
+      }
     },
     {
       "asset_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,marketing_dashboard,PROD)",
       "name": "marketing_dashboard",
       "platform": "looker",
       "asset_type": "DASHBOARD",
-      "classification": "POTENTIAL_IMPACT",
+      "classification": "UNLIKELY_IMPACT",
       "owners": [
         "Emily Watson"
       ],
@@ -67,40 +84,48 @@
           "source_field": null,
           "target_field": null,
           "query_reference": null,
-          "description": "DataHub downstream lineage path (hop distance: 2)"
-        }
-      ]
-    },
-    {
-      "asset_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,executive_customer_dashboard,PROD)",
-      "name": "executive_customer_dashboard",
-      "platform": "looker",
-      "asset_type": "DASHBOARD",
-      "classification": "POTENTIAL_IMPACT",
-      "owners": [
-        "Alex Rodriguez"
-      ],
-      "tags": [
-        "Executive_Tier"
-      ],
-      "hop_count": 2,
-      "evidence": [
+          "description": "DataHub downstream table lineage path (hop distance: 2)",
+          "provenance": {
+            "source_mode": "DEMO_FIXTURE",
+            "source_tool": "sentinel_demo_fixture_db",
+            "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,marketing_dashboard,PROD)",
+            "field_path": null,
+            "retrieved_at": "2026-08-08T10:04:25.921967+00:00",
+            "source_reference": null
+          }
+        },
         {
-          "id": "ev_tbl_1",
-          "type": "TABLE_LINEAGE",
+          "id": "ev_none_2",
+          "type": "METADATA_TAG",
           "source_field": null,
           "target_field": null,
           "query_reference": null,
-          "description": "DataHub downstream lineage path (hop distance: 2)"
+          "description": "Asset downstream of dataset but no field-level evidence connects the modified column(s).",
+          "provenance": {
+            "source_mode": "DEMO_FIXTURE",
+            "source_tool": "sentinel_demo_fixture_db",
+            "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,marketing_dashboard,PROD)",
+            "field_path": null,
+            "retrieved_at": "2026-08-08T10:04:25.921967+00:00",
+            "source_reference": null
+          }
         }
-      ]
+      ],
+      "provenance": {
+        "source_mode": "DEMO_FIXTURE",
+        "source_tool": "sentinel_demo_fixture_db",
+        "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,marketing_dashboard,PROD)",
+        "field_path": null,
+        "retrieved_at": "2026-08-08T10:04:25.921967+00:00",
+        "source_reference": null
+      }
     },
     {
       "asset_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,churn_features,PROD)",
       "name": "churn_features",
       "platform": "dbt",
       "asset_type": "DATASET",
-      "classification": "POTENTIAL_IMPACT",
+      "classification": "UNLIKELY_IMPACT",
       "owners": [
         "David Kim"
       ],
@@ -116,16 +141,48 @@
           "source_field": null,
           "target_field": null,
           "query_reference": null,
-          "description": "DataHub downstream lineage path (hop distance: 2)"
+          "description": "DataHub downstream table lineage path (hop distance: 2)",
+          "provenance": {
+            "source_mode": "DEMO_FIXTURE",
+            "source_tool": "sentinel_demo_fixture_db",
+            "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,churn_features,PROD)",
+            "field_path": null,
+            "retrieved_at": "2026-08-08T10:04:25.921967+00:00",
+            "source_reference": null
+          }
+        },
+        {
+          "id": "ev_none_2",
+          "type": "METADATA_TAG",
+          "source_field": null,
+          "target_field": null,
+          "query_reference": null,
+          "description": "Asset downstream of dataset but no field-level evidence connects the modified column(s).",
+          "provenance": {
+            "source_mode": "DEMO_FIXTURE",
+            "source_tool": "sentinel_demo_fixture_db",
+            "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,churn_features,PROD)",
+            "field_path": null,
+            "retrieved_at": "2026-08-08T10:04:25.921967+00:00",
+            "source_reference": null
+          }
         }
-      ]
+      ],
+      "provenance": {
+        "source_mode": "DEMO_FIXTURE",
+        "source_tool": "sentinel_demo_fixture_db",
+        "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,churn_features,PROD)",
+        "field_path": null,
+        "retrieved_at": "2026-08-08T10:04:25.921967+00:00",
+        "source_reference": null
+      }
     },
     {
       "asset_urn": "urn:li:dataset:(urn:li:dataPlatform:mlflow,churn_model,PROD)",
       "name": "churn_model",
       "platform": "mlflow",
       "asset_type": "ML_MODEL",
-      "classification": "POTENTIAL_IMPACT",
+      "classification": "UNLIKELY_IMPACT",
       "owners": [
         "David Kim"
       ],
@@ -141,9 +198,41 @@
           "source_field": null,
           "target_field": null,
           "query_reference": null,
-          "description": "DataHub downstream lineage path (hop distance: 3)"
+          "description": "DataHub downstream table lineage path (hop distance: 3)",
+          "provenance": {
+            "source_mode": "DEMO_FIXTURE",
+            "source_tool": "sentinel_demo_fixture_db",
+            "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:mlflow,churn_model,PROD)",
+            "field_path": null,
+            "retrieved_at": "2026-08-08T10:04:25.921967+00:00",
+            "source_reference": null
+          }
+        },
+        {
+          "id": "ev_none_2",
+          "type": "METADATA_TAG",
+          "source_field": null,
+          "target_field": null,
+          "query_reference": null,
+          "description": "Asset downstream of dataset but no field-level evidence connects the modified column(s).",
+          "provenance": {
+            "source_mode": "DEMO_FIXTURE",
+            "source_tool": "sentinel_demo_fixture_db",
+            "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:mlflow,churn_model,PROD)",
+            "field_path": null,
+            "retrieved_at": "2026-08-08T10:04:25.921967+00:00",
+            "source_reference": null
+          }
         }
-      ]
+      ],
+      "provenance": {
+        "source_mode": "DEMO_FIXTURE",
+        "source_tool": "sentinel_demo_fixture_db",
+        "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:mlflow,churn_model,PROD)",
+        "field_path": null,
+        "retrieved_at": "2026-08-08T10:04:25.921967+00:00",
+        "source_reference": null
+      }
     },
     {
       "asset_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,billing_dashboard,PROD)",
@@ -165,7 +254,15 @@
           "source_field": null,
           "target_field": null,
           "query_reference": null,
-          "description": "DataHub downstream lineage path (hop distance: 2)"
+          "description": "DataHub downstream table lineage path (hop distance: 2)",
+          "provenance": {
+            "source_mode": "DEMO_FIXTURE",
+            "source_tool": "sentinel_demo_fixture_db",
+            "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,billing_dashboard,PROD)",
+            "field_path": null,
+            "retrieved_at": "2026-08-08T10:04:25.921967+00:00",
+            "source_reference": null
+          }
         },
         {
           "id": "ev_none_2",
@@ -173,9 +270,25 @@
           "source_field": null,
           "target_field": null,
           "query_reference": null,
-          "description": "Asset downstream of dataset but does NOT consume the removed column 'email'"
+          "description": "Asset downstream of dataset but no field-level evidence connects the modified column(s).",
+          "provenance": {
+            "source_mode": "DEMO_FIXTURE",
+            "source_tool": "sentinel_demo_fixture_db",
+            "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,billing_dashboard,PROD)",
+            "field_path": null,
+            "retrieved_at": "2026-08-08T10:04:25.921967+00:00",
+            "source_reference": null
+          }
         }
-      ]
+      ],
+      "provenance": {
+        "source_mode": "DEMO_FIXTURE",
+        "source_tool": "sentinel_demo_fixture_db",
+        "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,billing_dashboard,PROD)",
+        "field_path": null,
+        "retrieved_at": "2026-08-08T10:04:25.921967+00:00",
+        "source_reference": null
+      }
     }
   ],
   "graph": {
@@ -193,7 +306,16 @@
           "PII",
           "Core_Entity",
           "Tier_1"
-        ]
+        ],
+        "is_demo_fixture": true,
+        "provenance": {
+          "source_mode": "DEMO_FIXTURE",
+          "source_tool": "sentinel_demo_fixture_db",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
+          "field_path": null,
+          "retrieved_at": "2026-08-08T10:04:25.920972+00:00",
+          "source_reference": "demo_fixtures/raw_customers.json"
+        }
       },
       {
         "id": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
@@ -207,62 +329,85 @@
         "tags": [
           "Tier_1",
           "Production_Model"
-        ]
+        ],
+        "is_demo_fixture": true,
+        "provenance": {
+          "source_mode": "DEMO_FIXTURE",
+          "source_tool": "sentinel_demo_fixture_db",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
+          "field_path": null,
+          "retrieved_at": "2026-08-08T10:04:25.921967+00:00",
+          "source_reference": "demo_fixtures/customer_360.json"
+        }
       },
       {
         "id": "urn:li:dataset:(urn:li:dataPlatform:looker,marketing_dashboard,PROD)",
         "label": "marketing_dashboard",
-        "type": "POTENTIAL_IMPACT",
+        "type": "UNAFFECTED",
         "platform": "looker",
-        "classification": "POTENTIAL_IMPACT",
+        "classification": "UNLIKELY_IMPACT",
         "owners": [
           "Emily Watson"
         ],
         "tags": [
           "Executive_Tier",
           "Critical_Dashboard"
-        ]
-      },
-      {
-        "id": "urn:li:dataset:(urn:li:dataPlatform:looker,executive_customer_dashboard,PROD)",
-        "label": "executive_customer_dashboard",
-        "type": "POTENTIAL_IMPACT",
-        "platform": "looker",
-        "classification": "POTENTIAL_IMPACT",
-        "owners": [
-          "Alex Rodriguez"
         ],
-        "tags": [
-          "Executive_Tier"
-        ]
+        "is_demo_fixture": true,
+        "provenance": {
+          "source_mode": "DEMO_FIXTURE",
+          "source_tool": "sentinel_demo_fixture_db",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,marketing_dashboard,PROD)",
+          "field_path": null,
+          "retrieved_at": "2026-08-08T10:04:25.921967+00:00",
+          "source_reference": null
+        }
       },
       {
         "id": "urn:li:dataset:(urn:li:dataPlatform:dbt,churn_features,PROD)",
         "label": "churn_features",
-        "type": "POTENTIAL_IMPACT",
+        "type": "UNAFFECTED",
         "platform": "dbt",
-        "classification": "POTENTIAL_IMPACT",
+        "classification": "UNLIKELY_IMPACT",
         "owners": [
           "David Kim"
         ],
         "tags": [
           "ML_Feature_Store",
           "Tier_1"
-        ]
+        ],
+        "is_demo_fixture": true,
+        "provenance": {
+          "source_mode": "DEMO_FIXTURE",
+          "source_tool": "sentinel_demo_fixture_db",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,churn_features,PROD)",
+          "field_path": null,
+          "retrieved_at": "2026-08-08T10:04:25.921967+00:00",
+          "source_reference": null
+        }
       },
       {
         "id": "urn:li:dataset:(urn:li:dataPlatform:mlflow,churn_model,PROD)",
         "label": "churn_model",
-        "type": "POTENTIAL_IMPACT",
+        "type": "UNAFFECTED",
         "platform": "mlflow",
-        "classification": "POTENTIAL_IMPACT",
+        "classification": "UNLIKELY_IMPACT",
         "owners": [
           "David Kim"
         ],
         "tags": [
           "Production_ML",
           "Critical_Model"
-        ]
+        ],
+        "is_demo_fixture": true,
+        "provenance": {
+          "source_mode": "DEMO_FIXTURE",
+          "source_tool": "sentinel_demo_fixture_db",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:mlflow,churn_model,PROD)",
+          "field_path": null,
+          "retrieved_at": "2026-08-08T10:04:25.921967+00:00",
+          "source_reference": null
+        }
       },
       {
         "id": "urn:li:dataset:(urn:li:dataPlatform:looker,billing_dashboard,PROD)",
@@ -275,7 +420,16 @@
         ],
         "tags": [
           "Finance"
-        ]
+        ],
+        "is_demo_fixture": true,
+        "provenance": {
+          "source_mode": "DEMO_FIXTURE",
+          "source_tool": "sentinel_demo_fixture_db",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,billing_dashboard,PROD)",
+          "field_path": null,
+          "retrieved_at": "2026-08-08T10:04:25.921967+00:00",
+          "source_reference": null
+        }
       }
     ],
     "edges": [
@@ -285,7 +439,15 @@
         "lineage_type": "TABLE_LEVEL",
         "field_mapping": null,
         "hop_count": 1,
-        "evidence_source": "DataHub Dataset Lineage"
+        "evidence_source": "DataHub Table Lineage (DEMO_FIXTURE)",
+        "provenance": {
+          "source_mode": "DEMO_FIXTURE",
+          "source_tool": "sentinel_demo_fixture_db",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
+          "field_path": null,
+          "retrieved_at": "2026-08-08T10:04:25.921967+00:00",
+          "source_reference": "demo_fixtures/customer_360.json"
+        }
       },
       {
         "source": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
@@ -293,15 +455,15 @@
         "lineage_type": "TABLE_LEVEL",
         "field_mapping": null,
         "hop_count": 2,
-        "evidence_source": "DataHub Dataset Lineage"
-      },
-      {
-        "source": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
-        "target": "urn:li:dataset:(urn:li:dataPlatform:looker,executive_customer_dashboard,PROD)",
-        "lineage_type": "TABLE_LEVEL",
-        "field_mapping": null,
-        "hop_count": 2,
-        "evidence_source": "DataHub Dataset Lineage"
+        "evidence_source": "DataHub Table Lineage (DEMO_FIXTURE)",
+        "provenance": {
+          "source_mode": "DEMO_FIXTURE",
+          "source_tool": "sentinel_demo_fixture_db",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,marketing_dashboard,PROD)",
+          "field_path": null,
+          "retrieved_at": "2026-08-08T10:04:25.921967+00:00",
+          "source_reference": null
+        }
       },
       {
         "source": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
@@ -309,26 +471,54 @@
         "lineage_type": "TABLE_LEVEL",
         "field_mapping": null,
         "hop_count": 2,
-        "evidence_source": "DataHub Dataset Lineage"
+        "evidence_source": "DataHub Table Lineage (DEMO_FIXTURE)",
+        "provenance": {
+          "source_mode": "DEMO_FIXTURE",
+          "source_tool": "sentinel_demo_fixture_db",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,churn_features,PROD)",
+          "field_path": null,
+          "retrieved_at": "2026-08-08T10:04:25.921967+00:00",
+          "source_reference": null
+        }
       },
       {
-        "source": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
+        "source": "urn:li:dataset:(urn:li:dataPlatform:dbt,churn_features,PROD)",
         "target": "urn:li:dataset:(urn:li:dataPlatform:mlflow,churn_model,PROD)",
         "lineage_type": "TABLE_LEVEL",
         "field_mapping": null,
         "hop_count": 3,
-        "evidence_source": "DataHub Dataset Lineage"
+        "evidence_source": "DataHub Table Lineage (DEMO_FIXTURE)",
+        "provenance": {
+          "source_mode": "DEMO_FIXTURE",
+          "source_tool": "sentinel_demo_fixture_db",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:mlflow,churn_model,PROD)",
+          "field_path": null,
+          "retrieved_at": "2026-08-08T10:04:25.921967+00:00",
+          "source_reference": null
+        }
       },
       {
-        "source": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
+        "source": "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
         "target": "urn:li:dataset:(urn:li:dataPlatform:looker,billing_dashboard,PROD)",
         "lineage_type": "TABLE_LEVEL",
         "field_mapping": null,
         "hop_count": 2,
-        "evidence_source": "DataHub Dataset Lineage"
+        "evidence_source": "DataHub Table Lineage (DEMO_FIXTURE)",
+        "provenance": {
+          "source_mode": "DEMO_FIXTURE",
+          "source_tool": "sentinel_demo_fixture_db",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,billing_dashboard,PROD)",
+          "field_path": null,
+          "retrieved_at": "2026-08-08T10:04:25.921967+00:00",
+          "source_reference": null
+        }
       }
     ]
   },
   "confirmed_consumers_count": 0,
-  "potential_consumers_count": 5
+  "potential_consumers_count": 1,
+  "has_sufficient_evidence": true,
+  "evidence_provenance_summary": [
+    "DEMO_FIXTURE:sentinel_demo_fixture_db"
+  ]
 }

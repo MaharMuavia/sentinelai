@@ -229,7 +229,7 @@ export default function InvestigationDetailPage() {
       )}
 
       {activeTab === "evidence" && (
-        <EvidenceLedger evidenceBundle={evidence_bundle} riskAssessment={{ evidence_completeness }} />
+        <EvidenceLedger evidenceBundle={evidence_bundle} riskAssessment={data.risk_assessment || { evidence_completeness }} />
       )}
 
       {activeTab === "remediation" && (

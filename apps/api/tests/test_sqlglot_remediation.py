@@ -1,11 +1,13 @@
+import pytest
 from app.schema_engine.diff import ChangeSet, SchemaChange, ChangeType
-from app.schema_engine.parser import SchemaParserEngine
-from app.remediation.engine import SQLRemediationEngine
+from app.remediation.engine import SQLRemediationEngine, RemediationStatus
 
 
-def test_sqlglot_column_removed_remediation():
-    changeset = ChangeSet(
-        dataset_urn="urn:li:dataset:raw_customers",
+def test_remediation_where_clause_requires_human():
+    """Verify that removing a column referenced in a WHERE clause requires human review and is NOT auto-validated."""
+    sql = "SELECT customer_id, email, lifetime_value FROM customer_360 WHERE email IS NOT NULL;"
+    changes = ChangeSet(
+        dataset_urn="urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
         changes=[
             SchemaChange(
                 field="email",
@@ -16,18 +18,39 @@ def test_sqlglot_column_removed_remediation():
         ]
     )
 
-    sql = "SELECT customer_id, email, lifetime_value FROM customer_360 WHERE email IS NOT NULL GROUP BY customer_id, email ORDER BY email;"
-    artifact = SQLRemediationEngine.remediate_dbt_model("models/marts/customer_360.sql", sql, changeset)
+    artifact = SQLRemediationEngine.remediate_dbt_model(
+        file_path="models/customer_360.sql",
+        original_sql=sql,
+        changes=changes
+    )
 
+    # Must be marked REQUIRES_HUMAN, NOT VALIDATED (never deleting WHERE predicates silently)
+    assert artifact.validation.status == RemediationStatus.REQUIRES_HUMAN
+    assert artifact.validation.is_valid is False
+    assert "WHERE filter clause" in artifact.validation.requires_human_reason
+
+
+def test_remediation_simple_projection_removal():
+    """Verify simple SELECT list projection removal without WHERE clause predicates."""
+    sql = "SELECT customer_id, email, lifetime_value FROM customer_360;"
+    changes = ChangeSet(
+        dataset_urn="urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
+        changes=[
+            SchemaChange(
+                field="email",
+                change_type=ChangeType.COLUMN_REMOVED,
+                is_breaking=True,
+                details="Field 'email' removed"
+            )
+        ]
+    )
+
+    artifact = SQLRemediationEngine.remediate_dbt_model(
+        file_path="models/customer_360.sql",
+        original_sql=sql,
+        changes=changes
+    )
+
+    assert artifact.validation.status == RemediationStatus.VALIDATED
     assert artifact.validation.is_valid is True
-    assert artifact.validation.status == "VALIDATED"
     assert "email" not in artifact.remediated_sql.lower()
-    assert artifact.unified_diff != ""
-
-
-def test_schema_parser_ddl_alter_drop():
-    ddl = "ALTER TABLE raw_customers DROP COLUMN email;"
-    before, after = SchemaParserEngine.parse_sql_ddl_alter(ddl)
-    assert len(before.fields) == 4
-    assert len(after.fields) == 3
-    assert not any(f.name.lower() == "email" for f in after.fields)

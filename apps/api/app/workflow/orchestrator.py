@@ -1,16 +1,16 @@
 import uuid
 import datetime
-from typing import Dict, Any, List, Optional, Callable
+from typing import Dict, Any, List, Optional, AsyncGenerator
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.schema_engine.diff import SchemaSnapshot, SchemaDiffEngine, ChangeSet
-from app.datahub.client import DataHubClient
+from app.datahub.client import DataHubClient, IntegrationMode
 from app.datahub.writeback import DataHubWritebackEngine
 from app.evidence.engine import ImpactEvidenceEngine, ImpactEvidenceBundle, ImpactClassification
-from app.risk.engine import RiskEngine, RiskAssessment
+from app.risk.engine import RiskEngine, RiskAssessment, DecisionVerdict
 from app.llm.reasoning import LLMReasoningEngine, AIReasoningOutput
-from app.remediation.engine import SQLRemediationEngine, RemediationArtifact
+from app.remediation.engine import SQLRemediationEngine, RemediationArtifact, RemediationStatus
 from app.github.client import GitHubClient
 from app.db.models import InvestigationDB, AuditEventDB
 
@@ -22,9 +22,9 @@ class WorkflowStage(str):
     BUILD_EVIDENCE_GRAPH = "BUILD_EVIDENCE_GRAPH"
     VERIFY_CONSUMERS = "VERIFY_CONSUMERS"
     COMPUTE_RISK = "COMPUTE_RISK"
-    GENERATE_EXPLANATION = "GENERATE_EXPLANATION"
     GENERATE_REMEDIATION = "GENERATE_REMEDIATION"
     VALIDATE_REMEDIATION = "VALIDATE_REMEDIATION"
+    GENERATE_EXPLANATION = "GENERATE_EXPLANATION"
     HUMAN_APPROVAL = "HUMAN_APPROVAL"
     ACT = "ACT"
     WRITE_BACK = "WRITE_BACK"
@@ -34,7 +34,7 @@ class WorkflowStage(str):
 class WorkflowProgressEvent(BaseModel):
     investigation_id: str
     stage: str
-    status: str  # STARTED, RUNNING, COMPLETED, FAILED
+    status: str  # STARTED, RUNNING, COMPLETED, FAILED, SKIPPED
     message: str
     timestamp: str = Field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc).isoformat())
 
@@ -47,16 +47,23 @@ class InvestigationResult(BaseModel):
     evidence_completeness: float
     confirmed_consumers_count: int
     potential_consumers_count: int
+    integration_mode: IntegrationMode
     changes: ChangeSet
     evidence_bundle: ImpactEvidenceBundle
     risk_assessment: RiskAssessment
     ai_explanation: AIReasoningOutput
     remediation: Optional[RemediationArtifact] = None
-    datahub_writeback_status: str = "COMPLETED"
-    github_action_status: str = "PREPARED"
+    datahub_writeback_status: str = "PENDING"
+    github_action_status: str = "NONE"
 
 
 class SentinelWorkflowOrchestrator:
+    """
+    Canonical 13-Stage Bounded Sentinel Change Control Workflow Orchestrator.
+    Executes pre-merge change investigation deterministically over DataHub context.
+    Consolidates state transitions and guarantees database transaction ordering.
+    """
+
     def __init__(self, db_session: Session):
         self.db = db_session
         self.dh_client = DataHubClient()
@@ -69,53 +76,81 @@ class SentinelWorkflowOrchestrator:
         before_schema: SchemaSnapshot,
         after_schema: SchemaSnapshot,
         pr_url: Optional[str] = None,
-        downstream_sql: Optional[str] = None,
-        event_callback: Optional[Callable[[WorkflowProgressEvent], None]] = None
+        downstream_sql: Optional[str] = None
     ) -> InvestigationResult:
-        """Execute the 13-stage bounded Sentinel change control workflow."""
-        
+        events = []
+        result = None
+        async for event in self.execute_investigation_streaming(
+            before_schema=before_schema,
+            after_schema=after_schema,
+            pr_url=pr_url,
+            downstream_sql=downstream_sql
+        ):
+            if isinstance(event, InvestigationResult):
+                result = event
+            else:
+                events.append(event)
+        return result
+
+    async def execute_investigation_streaming(
+        self,
+        before_schema: SchemaSnapshot,
+        after_schema: SchemaSnapshot,
+        pr_url: Optional[str] = None,
+        downstream_sql: Optional[str] = None
+    ) -> AsyncGenerator[Any, None]:
         inv_id = str(uuid.uuid4())[:8]
 
-        async def emit(stage: str, status: str, message: str, details: Optional[Dict[str, Any]] = None):
-            event = WorkflowProgressEvent(
-                investigation_id=inv_id,
-                stage=stage,
-                status=status,
-                message=message
-            )
-            # Log audit event to SQLite
-            audit = AuditEventDB(
-                investigation_id=inv_id,
-                stage=stage,
-                status=status,
-                message=message,
-                details_json=details
-            )
-            self.db.add(audit)
-            self.db.commit()
-
-            if event_callback:
-                event_callback(event)
-
         # 1. RECEIVE_CHANGE
-        await emit(WorkflowStage.RECEIVE_CHANGE, "COMPLETED", "Received proposed schema snapshot and change payload")
+        yield WorkflowProgressEvent(
+            investigation_id=inv_id,
+            stage=WorkflowStage.RECEIVE_CHANGE,
+            status="COMPLETED",
+            message="Received proposed schema snapshot payload"
+        )
 
         # 2. NORMALIZE_CHANGE
         changes = SchemaDiffEngine.diff(before_schema, after_schema, source="github_pr" if pr_url else "manual")
-        await emit(WorkflowStage.NORMALIZE_CHANGE, "COMPLETED", f"Normalized {len(changes.changes)} schema change(s)")
+        yield WorkflowProgressEvent(
+            investigation_id=inv_id,
+            stage=WorkflowStage.NORMALIZE_CHANGE,
+            status="COMPLETED",
+            message=f"Normalized {len(changes.changes)} schema change(s)"
+        )
 
         # 3. LOAD_DATAHUB_CONTEXT
-        dataset_meta = await self.dh_client.get_dataset(changes.dataset_urn)
-        await emit(WorkflowStage.LOAD_DATAHUB_CONTEXT, "COMPLETED", f"Loaded verified DataHub context for dataset '{changes.dataset_urn}'")
+        mode = await self.dh_client.get_integration_mode(allow_fixture_fallback=True)
+        dataset_meta = await self.dh_client.get_dataset(changes.dataset_urn, allow_fixture_fallback=True)
+        yield WorkflowProgressEvent(
+            investigation_id=inv_id,
+            stage=WorkflowStage.LOAD_DATAHUB_CONTEXT,
+            status="COMPLETED",
+            message=f"Loaded DataHub context ({mode.value}) for '{changes.dataset_urn}'"
+        )
 
         # 4. BUILD_EVIDENCE_GRAPH & 5. VERIFY_CONSUMERS
-        evidence_bundle = await self.evidence_engine.analyze_impact(changes)
-        await emit(WorkflowStage.BUILD_EVIDENCE_GRAPH, "COMPLETED", f"Constructed blast-radius graph with {len(evidence_bundle.graph.nodes)} node(s)")
-        await emit(WorkflowStage.VERIFY_CONSUMERS, "COMPLETED", f"Identified {evidence_bundle.confirmed_consumers_count} confirmed and {evidence_bundle.potential_consumers_count} potential downstream consumer(s)")
+        evidence_bundle = await self.evidence_engine.analyze_impact(changes, allow_fixture_fallback=True)
+        yield WorkflowProgressEvent(
+            investigation_id=inv_id,
+            stage=WorkflowStage.BUILD_EVIDENCE_GRAPH,
+            status="COMPLETED",
+            message=f"Constructed blast-radius evidence graph with {len(evidence_bundle.graph.nodes)} node(s)"
+        )
+        yield WorkflowProgressEvent(
+            investigation_id=inv_id,
+            stage=WorkflowStage.VERIFY_CONSUMERS,
+            status="COMPLETED",
+            message=f"Verified {evidence_bundle.confirmed_consumers_count} confirmed and {evidence_bundle.potential_consumers_count} potential downstream consumer(s)"
+        )
 
         # 6. COMPUTE_RISK
         risk_assessment = RiskEngine.assess_risk(evidence_bundle)
-        await emit(WorkflowStage.COMPUTE_RISK, "COMPLETED", f"Calculated severity '{risk_assessment.severity}' with evidence completeness {risk_assessment.evidence_completeness}%")
+        yield WorkflowProgressEvent(
+            investigation_id=inv_id,
+            stage=WorkflowStage.COMPUTE_RISK,
+            status="COMPLETED",
+            message=f"Calculated verdict '{risk_assessment.verdict.value}' ({risk_assessment.severity.value}) with {risk_assessment.evidence_completeness}% evidence completeness"
+        )
 
         # 7. GENERATE_REMEDIATION & 8. VALIDATE_REMEDIATION
         sample_sql = downstream_sql or "SELECT customer_id, email, lifetime_value FROM customer_360 WHERE email IS NOT NULL;"
@@ -124,8 +159,18 @@ class SentinelWorkflowOrchestrator:
             original_sql=sample_sql,
             changes=changes
         )
-        await emit(WorkflowStage.GENERATE_REMEDIATION, "COMPLETED", "Generated SQLGlot candidate AST patch for downstream dbt model")
-        await emit(WorkflowStage.VALIDATE_REMEDIATION, "COMPLETED", f"SQLGlot static validation status: {remediation_artifact.validation.status}")
+        yield WorkflowProgressEvent(
+            investigation_id=inv_id,
+            stage=WorkflowStage.GENERATE_REMEDIATION,
+            status="COMPLETED",
+            message=f"AST Remediation status: {remediation_artifact.validation.status.value}"
+        )
+        yield WorkflowProgressEvent(
+            investigation_id=inv_id,
+            stage=WorkflowStage.VALIDATE_REMEDIATION,
+            status="COMPLETED",
+            message=f"Remediation validation: syntax_ok={remediation_artifact.validation.syntax_ok}, valid={remediation_artifact.validation.is_valid}"
+        )
 
         # 9. GENERATE_EXPLANATION
         ai_explanation = await LLMReasoningEngine.generate_explanation(
@@ -133,170 +178,39 @@ class SentinelWorkflowOrchestrator:
             risk=risk_assessment,
             remediation_diff=remediation_artifact.unified_diff
         )
-        await emit(WorkflowStage.GENERATE_EXPLANATION, "COMPLETED", "Generated evidence-grounded AI decision and merge recommendation")
-
-        # 10. HUMAN_APPROVAL & 11. ACT
-        await emit(WorkflowStage.HUMAN_APPROVAL, "COMPLETED", "Human approval requirement checked (Read & Safe-write auto-approved)")
-        
-        critical_paths = [
-            f"{changes.dataset_urn} → customer_360 → marketing_dashboard",
-            f"{changes.dataset_urn} → churn_features → churn_model"
-        ]
-        
-        pr_number = 42  # default
-        if pr_url:
-            try:
-                pr_number = int(pr_url.rstrip('/').split('/')[-1])
-            except (ValueError, IndexError):
-                pass
-                
-        github_res = await self.github_client.post_pr_comment(
-            pr_number=pr_number,
-            severity=risk_assessment.severity,
-            recommendation=ai_explanation.merge_recommendation,
-            evidence_completeness=risk_assessment.evidence_completeness,
-            proposed_change=changes.changes[0].details if changes.changes else "Schema change",
-            confirmed_consumers_count=evidence_bundle.confirmed_consumers_count,
-            critical_paths=critical_paths,
-            recommended_action=ai_explanation.recommended_action,
-            remediation_diff=remediation_artifact.unified_diff,
-            investigation_id=inv_id
-        )
-        await emit(WorkflowStage.ACT, "COMPLETED", f"GitHub action status: {github_res.message}")
-
-        # 12. WRITE_BACK
-        writeback_res = await self.dh_writeback.writeback_investigation(
+        yield WorkflowProgressEvent(
             investigation_id=inv_id,
-            dataset_urn=changes.dataset_urn,
-            severity=risk_assessment.severity,
-            recommendation=ai_explanation.merge_recommendation,
-            evidence_completeness=risk_assessment.evidence_completeness,
-            confirmed_consumers=[a.name for a in evidence_bundle.classified_assets if a.classification == ImpactClassification.CONFIRMED_IMPACT],
-            potential_consumers=[a.name for a in evidence_bundle.classified_assets if a.classification == ImpactClassification.POTENTIAL_IMPACT],
-            summary=ai_explanation.executive_summary,
-            remediation_diff=remediation_artifact.unified_diff,
-            pr_url=pr_url
+            stage=WorkflowStage.GENERATE_EXPLANATION,
+            status="COMPLETED",
+            message="Generated evidence-grounded decision explanation"
         )
-        await emit(WorkflowStage.WRITE_BACK, "COMPLETED", f"DataHub writeback: {writeback_res.message}")
 
-        # 13. COMPLETE
-        await emit(WorkflowStage.COMPLETE, "COMPLETED", "Sentinel pre-merge change control investigation finished successfully")
-
-        # Persist full investigation record in SQLite
-        db_inv = InvestigationDB(
-            id=inv_id,
-            dataset_urn=changes.dataset_urn,
-            pr_url=pr_url,
-            source=changes.source,
-            severity=risk_assessment.severity,
-            recommendation=ai_explanation.merge_recommendation,
-            evidence_completeness=risk_assessment.evidence_completeness,
-            confirmed_consumers_count=evidence_bundle.confirmed_consumers_count,
-            potential_consumers_count=evidence_bundle.potential_consumers_count,
-            datahub_writeback_status="SUCCESS" if writeback_res.success else "FAILED",
-            github_action_status=github_res.action_type,
-            schema_change_json=changes.model_dump(),
-            evidence_graph_json=evidence_bundle.model_dump(),
-            ai_explanation_json=ai_explanation.model_dump(),
-            remediation_json=remediation_artifact.model_dump()
-        )
-        self.db.add(db_inv)
-        self.db.commit()
-
-        return InvestigationResult(
+        # 10. HUMAN_APPROVAL
+        requires_human = (risk_assessment.verdict == DecisionVerdict.BLOCK) or (remediation_artifact.validation.status == RemediationStatus.REQUIRES_HUMAN)
+        yield WorkflowProgressEvent(
             investigation_id=inv_id,
-            dataset_urn=changes.dataset_urn,
-            severity=risk_assessment.severity,
-            recommendation=ai_explanation.merge_recommendation,
-            evidence_completeness=risk_assessment.evidence_completeness,
-            confirmed_consumers_count=evidence_bundle.confirmed_consumers_count,
-            potential_consumers_count=evidence_bundle.potential_consumers_count,
-            changes=changes,
-            evidence_bundle=evidence_bundle,
-            risk_assessment=risk_assessment,
-            ai_explanation=ai_explanation,
-            remediation=remediation_artifact,
-            datahub_writeback_status="SUCCESS" if writeback_res.success else "FAILED",
-            github_action_status="SUCCESS" if github_res.success else "FAILED"
+            stage=WorkflowStage.HUMAN_APPROVAL,
+            status="COMPLETED",
+            message=f"Human approval check: {'REQUIRED (High-risk change / semantic predicate modification)' if requires_human else 'AUTO-APPROVED (Non-breaking change)'}"
         )
 
-    async def execute_investigation_streaming(
-        self,
-        before_schema: SchemaSnapshot,
-        after_schema: SchemaSnapshot,
-        pr_url: Optional[str] = None,
-        downstream_sql: Optional[str] = None
-    ):
-        """Execute investigation as async generator, yielding progress events."""
-        inv_id = str(uuid.uuid4())[:8]
-        
-        async def emit_and_yield(stage, status, message, details=None):
-            event = WorkflowProgressEvent(
-                investigation_id=inv_id,
-                stage=stage,
-                status=status,
-                message=message
-            )
-            audit = AuditEventDB(
-                investigation_id=inv_id,
-                stage=stage,
-                status=status,
-                message=message,
-                details_json=details
-            )
-            self.db.add(audit)
-            self.db.commit()
-            return event
-        
-        yield await emit_and_yield(WorkflowStage.RECEIVE_CHANGE, "COMPLETED", "Received proposed schema snapshot and change payload")
-        
-        changes = SchemaDiffEngine.diff(before_schema, after_schema, source="github_pr" if pr_url else "manual")
-        yield await emit_and_yield(WorkflowStage.NORMALIZE_CHANGE, "COMPLETED", f"Normalized {len(changes.changes)} schema change(s)")
-        
-        dataset_meta = await self.dh_client.get_dataset(changes.dataset_urn)
-        yield await emit_and_yield(WorkflowStage.LOAD_DATAHUB_CONTEXT, "COMPLETED", f"Loaded verified DataHub context for dataset '{changes.dataset_urn}'")
-        
-        evidence_bundle = await self.evidence_engine.analyze_impact(changes)
-        yield await emit_and_yield(WorkflowStage.BUILD_EVIDENCE_GRAPH, "COMPLETED", f"Constructed blast-radius graph with {len(evidence_bundle.graph.nodes)} node(s)")
-        yield await emit_and_yield(WorkflowStage.VERIFY_CONSUMERS, "COMPLETED", f"Identified {evidence_bundle.confirmed_consumers_count} confirmed and {evidence_bundle.potential_consumers_count} potential downstream consumer(s)")
-        
-        risk_assessment = RiskEngine.assess_risk(evidence_bundle)
-        yield await emit_and_yield(WorkflowStage.COMPUTE_RISK, "COMPLETED", f"Calculated severity '{risk_assessment.severity}' with evidence completeness {risk_assessment.evidence_completeness}%")
-        
-        sample_sql = downstream_sql or "SELECT customer_id, email, lifetime_value FROM customer_360 WHERE email IS NOT NULL;"
-        remediation_artifact = SQLRemediationEngine.remediate_dbt_model(
-            file_path="models/marts/customer_360.sql",
-            original_sql=sample_sql,
-            changes=changes
-        )
-        yield await emit_and_yield(WorkflowStage.GENERATE_REMEDIATION, "COMPLETED", "Generated SQLGlot candidate AST patch for downstream dbt model")
-        yield await emit_and_yield(WorkflowStage.VALIDATE_REMEDIATION, "COMPLETED", f"SQLGlot static validation status: {remediation_artifact.validation.status}")
-        
-        ai_explanation = await LLMReasoningEngine.generate_explanation(
-            bundle=evidence_bundle,
-            risk=risk_assessment,
-            remediation_diff=remediation_artifact.unified_diff
-        )
-        yield await emit_and_yield(WorkflowStage.GENERATE_EXPLANATION, "COMPLETED", "Generated evidence-grounded AI decision and merge recommendation")
-        
-        yield await emit_and_yield(WorkflowStage.HUMAN_APPROVAL, "COMPLETED", "Human approval requirement checked (Read & Safe-write auto-approved)")
-        
+        # 11. ACT (GitHub review comment)
         critical_paths = [
-            f"{changes.dataset_urn} → customer_360 → marketing_dashboard",
-            f"{changes.dataset_urn} → churn_features → churn_model"
-        ]
-        
+            f"{e.source} → {e.target} ({e.lineage_type})"
+            for e in evidence_bundle.graph.edges
+        ] or [f"{changes.dataset_urn} → downstream consumers"]
+
         pr_number = 42
         if pr_url:
             try:
                 pr_number = int(pr_url.rstrip('/').split('/')[-1])
             except (ValueError, IndexError):
                 pass
-                
+
         github_res = await self.github_client.post_pr_comment(
             pr_number=pr_number,
-            severity=risk_assessment.severity,
-            recommendation=ai_explanation.merge_recommendation,
+            severity=risk_assessment.severity.value,
+            recommendation=risk_assessment.verdict.value,
             evidence_completeness=risk_assessment.evidence_completeness,
             proposed_change=changes.changes[0].details if changes.changes else "Schema change",
             confirmed_consumers_count=evidence_bundle.confirmed_consumers_count,
@@ -305,13 +219,19 @@ class SentinelWorkflowOrchestrator:
             remediation_diff=remediation_artifact.unified_diff,
             investigation_id=inv_id
         )
-        yield await emit_and_yield(WorkflowStage.ACT, "COMPLETED", f"GitHub action status: {github_res.message}")
-        
+        yield WorkflowProgressEvent(
+            investigation_id=inv_id,
+            stage=WorkflowStage.ACT,
+            status="COMPLETED" if github_res.success else "SKIPPED",
+            message=f"GitHub action: {github_res.message}"
+        )
+
+        # 12. WRITE_BACK (DataHub GMS mutation)
         writeback_res = await self.dh_writeback.writeback_investigation(
             investigation_id=inv_id,
             dataset_urn=changes.dataset_urn,
-            severity=risk_assessment.severity,
-            recommendation=ai_explanation.merge_recommendation,
+            severity=risk_assessment.severity.value,
+            recommendation=risk_assessment.verdict.value,
             evidence_completeness=risk_assessment.evidence_completeness,
             confirmed_consumers=[a.name for a in evidence_bundle.classified_assets if a.classification == ImpactClassification.CONFIRMED_IMPACT],
             potential_consumers=[a.name for a in evidence_bundle.classified_assets if a.classification == ImpactClassification.POTENTIAL_IMPACT],
@@ -319,17 +239,29 @@ class SentinelWorkflowOrchestrator:
             remediation_diff=remediation_artifact.unified_diff,
             pr_url=pr_url
         )
-        yield await emit_and_yield(WorkflowStage.WRITE_BACK, "COMPLETED", f"DataHub writeback: {writeback_res.message}")
-        
-        yield await emit_and_yield(WorkflowStage.COMPLETE, "COMPLETED", "Sentinel pre-merge change control investigation finished successfully")
-        
+        yield WorkflowProgressEvent(
+            investigation_id=inv_id,
+            stage=WorkflowStage.WRITE_BACK,
+            status="COMPLETED" if writeback_res.success else "FAILED",
+            message=f"DataHub writeback: {writeback_res.message}"
+        )
+
+        # 13. COMPLETE
+        yield WorkflowProgressEvent(
+            investigation_id=inv_id,
+            stage=WorkflowStage.COMPLETE,
+            status="COMPLETED",
+            message="Sentinel change control investigation completed successfully"
+        )
+
+        # TRANSACTION ORDERING FIX: Save InvestigationDB record FIRST before any child audit events
         db_inv = InvestigationDB(
             id=inv_id,
             dataset_urn=changes.dataset_urn,
             pr_url=pr_url,
             source=changes.source,
-            severity=risk_assessment.severity,
-            recommendation=ai_explanation.merge_recommendation,
+            severity=risk_assessment.severity.value,
+            recommendation=risk_assessment.verdict.value,
             evidence_completeness=risk_assessment.evidence_completeness,
             confirmed_consumers_count=evidence_bundle.confirmed_consumers_count,
             potential_consumers_count=evidence_bundle.potential_consumers_count,
@@ -342,15 +274,27 @@ class SentinelWorkflowOrchestrator:
         )
         self.db.add(db_inv)
         self.db.commit()
-        
-        res = InvestigationResult(
+
+        # Save completed audit log entry
+        audit = AuditEventDB(
+            investigation_id=inv_id,
+            stage=WorkflowStage.COMPLETE,
+            status="COMPLETED",
+            message="Sentinel investigation workflow completed.",
+            details_json={"mode": mode.value, "verdict": risk_assessment.verdict.value}
+        )
+        self.db.add(audit)
+        self.db.commit()
+
+        result = InvestigationResult(
             investigation_id=inv_id,
             dataset_urn=changes.dataset_urn,
-            severity=risk_assessment.severity,
-            recommendation=ai_explanation.merge_recommendation,
+            severity=risk_assessment.severity.value,
+            recommendation=risk_assessment.verdict.value,
             evidence_completeness=risk_assessment.evidence_completeness,
             confirmed_consumers_count=evidence_bundle.confirmed_consumers_count,
             potential_consumers_count=evidence_bundle.potential_consumers_count,
+            integration_mode=mode,
             changes=changes,
             evidence_bundle=evidence_bundle,
             risk_assessment=risk_assessment,
@@ -359,4 +303,4 @@ class SentinelWorkflowOrchestrator:
             datahub_writeback_status="SUCCESS" if writeback_res.success else "FAILED",
             github_action_status="SUCCESS" if github_res.success else "FAILED"
         )
-        yield res
+        yield result

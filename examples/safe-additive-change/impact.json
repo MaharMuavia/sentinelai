@@ -1,11 +1,12 @@
 {
   "severity": "LOW",
-  "evidence_completeness": 55.0,
+  "verdict": "SAFE_TO_MERGE",
+  "evidence_completeness": 40.0,
   "risk_factors": [
     {
       "name": "NON_BREAKING_CHANGE",
       "impact": "LOW",
-      "description": "Proposed change is non-breaking (e.g. additive column addition or nullability relaxation)"
+      "description": "Proposed change is non-breaking (e.g. additive column addition or nullability relaxation)."
     }
   ],
   "completeness_breakdown": [
@@ -13,7 +14,7 @@
       "signal_name": "SCHEMA_VERIFIED",
       "is_present": true,
       "weight": 25.0,
-      "description": "Current schema snapshot verified against DataHub GMS metadata catalog"
+      "description": "Current schema snapshot verified against DataHub (DEMO_FIXTURE)"
     },
     {
       "signal_name": "COLUMN_LINEAGE_AVAILABLE",
@@ -35,10 +36,10 @@
     },
     {
       "signal_name": "EXACT_LINEAGE_PATH_VERIFIED",
-      "is_present": true,
+      "is_present": false,
       "weight": 15.0,
       "description": "Multi-hop lineage paths fully traced from root dataset to end consumers"
     }
   ],
-  "policy_triggered": "LOW: Non-breaking or additive change with no downstream impact"
+  "policy_triggered": "LOW: Non-breaking or additive schema change with no confirmed downstream breaks."
 }

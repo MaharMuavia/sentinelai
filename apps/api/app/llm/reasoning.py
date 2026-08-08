@@ -1,17 +1,10 @@
 import json
 import httpx
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from app.config import settings
 from app.evidence.engine import ImpactEvidenceBundle, ImpactClassification
-from app.risk.engine import RiskAssessment, Severity
-
-
-class MergeRecommendation(str):
-    SAFE_TO_MERGE = "SAFE_TO_MERGE"
-    MERGE_WITH_CAUTION = "MERGE_WITH_CAUTION"
-    BLOCK = "BLOCK"
-    INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"
+from app.risk.engine import RiskAssessment, Severity, DecisionVerdict
 
 
 class EvidenceReference(BaseModel):
@@ -31,24 +24,29 @@ class AIReasoningOutput(BaseModel):
 
 
 class LLMReasoningEngine:
+    """
+    Evidence-Grounded AI Explanation Engine.
+    Generates natural language summaries and remediation strategies over verified DataHub evidence.
+    CRITICAL RULE: The LLM NEVER determines the underlying risk verdict.
+    The merge recommendation is ALWAYS dictated by the deterministic RiskEngine.
+    """
+
     @staticmethod
     async def generate_explanation(
         bundle: ImpactEvidenceBundle,
         risk: RiskAssessment,
         remediation_diff: Optional[str] = None
     ) -> AIReasoningOutput:
-        """Generate evidence-grounded AI reasoning. Uses OpenAI API if configured, or deterministic fallback."""
-
-        # Try live OpenAI API if OPENAI_API_KEY is present
         if settings.OPENAI_API_KEY:
             try:
                 output = await LLMReasoningEngine._call_openai_llm(bundle, risk, remediation_diff)
                 if output:
+                    # Enforce deterministic risk verdict over LLM output
+                    output.merge_recommendation = risk.verdict.value
                     return output
-            except Exception as e:
-                pass  # Fallback to deterministic engine below
+            except Exception:
+                pass
 
-        # Deterministic evidence-backed reasoning generator
         return LLMReasoningEngine._generate_deterministic_explanation(bundle, risk, remediation_diff)
 
     @staticmethod
@@ -59,28 +57,40 @@ class LLMReasoningEngine:
     ) -> AIReasoningOutput:
         breaking = [c for c in bundle.changes.changes if c.is_breaking]
         confirmed = [a for a in bundle.classified_assets if a.classification == ImpactClassification.CONFIRMED_IMPACT]
-        
-        if risk.severity in (Severity.CRITICAL, Severity.HIGH):
-            rec = "BLOCK"
-        elif risk.severity == Severity.MEDIUM:
-            rec = "MERGE_WITH_CAUTION"
-        else:
-            rec = "SAFE_TO_MERGE"
 
         field_names = ", ".join([f"'{c.field}'" for c in breaking]) or "schema fields"
         dataset_name = bundle.dataset_name
 
-        exec_summary = (
-            f"Proposed change to dataset '{dataset_name}' modifies {len(bundle.changes.changes)} field(s), "
-            f"including breaking change(s) to {field_names}. Sentinel verified {bundle.confirmed_consumers_count} "
-            f"confirmed downstream consumer(s) across DataHub lineage graph."
-        )
-
-        why_matters = (
-            f"Removing or altering column(s) {field_names} breaks downstream analytical models and dashboards "
-            f"that explicitly select this field. Impacted critical systems include Executive Looker Dashboards "
-            f"and ML Churn Prediction Models."
-        )
+        if risk.verdict == DecisionVerdict.INSUFFICIENT_EVIDENCE:
+            exec_summary = (
+                f"Proposed change to dataset '{dataset_name}' cannot be fully verified. "
+                f"DataHub catalog metadata context is incomplete or unavailable."
+            )
+            why_matters = (
+                f"Proceeding with unverified schema changes to {field_names} creates high risk of silent pipeline failure."
+            )
+            rec_action = "Verify DataHub connectivity or supply missing lineage metadata before merging PR."
+            remediation_strat = "Require manual engineering review and verify downstream models manually."
+        else:
+            exec_summary = (
+                f"Proposed change to dataset '{dataset_name}' modifies {len(bundle.changes.changes)} field(s), "
+                f"including breaking change(s) to {field_names}. Sentinel verified {bundle.confirmed_consumers_count} "
+                f"confirmed downstream consumer(s) across DataHub lineage graph ({bundle.integration_mode.value})."
+            )
+            why_matters = (
+                f"Altering column(s) {field_names} risks breaking downstream analytical models and dashboards "
+                f"that reference this field. Impacted verified systems include Executive Dashboards and ML Feature Stores."
+            )
+            rec_action = (
+                f"Review affected downstream dbt models and dashboard field references before merging PR. "
+                f"Apply generated candidate remediation patch where semantic safety is validated."
+            )
+            remediation_strat = (
+                "1. Review unified diff generated by SQLGlot AST engine.\n"
+                "2. Apply candidate patch to feature branch.\n"
+                "3. Re-run Sentinel change analysis to confirm 0 downstream breaks.\n"
+                "4. Obtain human engineer approval and merge PR."
+            )
 
         affected_systems = [f"{a.name} ({a.platform} {a.asset_type})" for a in confirmed]
         if not affected_systems:
@@ -94,25 +104,13 @@ class LLMReasoningEngine:
                     fact=f"{asset.name}: {ev.description}"
                 ))
 
-        rec_action = (
-            f"Update downstream dbt models and dashboard field references before merging PR. "
-            f"Apply the generated and validated SQLGlot remediation patch to remove references to {field_names}."
-        )
-
-        remediation_strat = (
-            "1. Review unified diff generated by SQLGlot AST transformation.\n"
-            "2. Deploy remediated dbt transformation code to feature branch.\n"
-            "3. Re-run Sentinel analysis to confirm 0 downstream field breaks.\n"
-            "4. Merge PR."
-        )
-
         return AIReasoningOutput(
             executive_summary=exec_summary,
-            proposed_change_summary=f"{bundle.changes.source.upper()}: Breaking schema modification on '{dataset_name}' ({field_names})",
+            proposed_change_summary=f"{bundle.changes.source.upper()}: Schema modification on '{dataset_name}' ({field_names})",
             why_it_matters=why_matters,
             affected_systems=affected_systems,
             recommended_action=rec_action,
-            merge_recommendation=rec,
+            merge_recommendation=risk.verdict.value,
             remediation_strategy=remediation_strat,
             evidence_ledger=ledger
         )
@@ -123,11 +121,12 @@ class LLMReasoningEngine:
         risk: RiskAssessment,
         remediation_diff: Optional[str]
     ) -> Optional[AIReasoningOutput]:
-        # Formulate strict system and user prompt with evidence json...
         prompt = {
             "dataset": bundle.dataset_name,
-            "severity": risk.severity,
+            "verdict": risk.verdict.value,
+            "severity": risk.severity.value,
             "evidence_completeness": risk.evidence_completeness,
+            "integration_mode": bundle.integration_mode.value,
             "confirmed_consumers": [a.name for a in bundle.classified_assets if a.classification == ImpactClassification.CONFIRMED_IMPACT],
             "risk_factors": [r.description for r in risk.risk_factors]
         }
@@ -142,7 +141,7 @@ class LLMReasoningEngine:
                 "messages": [
                     {
                         "role": "system",
-                        "content": "You are Sentinel AI, a Data Reliability Engineer. Reason ONLY over provided evidence. Do NOT invent assets."
+                        "content": "You are Sentinel AI Data Reliability Engineer. Reason ONLY over provided evidence. Do NOT invent assets."
                     },
                     {"role": "user", "content": json.dumps(prompt)}
                 ],
@@ -151,5 +150,7 @@ class LLMReasoningEngine:
             res = await client.post("https://api.openai.com/v1/chat/completions", headers=headers, json=body)
             if res.status_code == 200:
                 data = res.json()["choices"][0]["message"]["content"]
-                return AIReasoningOutput.model_validate_json(data)
+                parsed = AIReasoningOutput.model_validate_json(data)
+                parsed.merge_recommendation = risk.verdict.value
+                return parsed
         return None

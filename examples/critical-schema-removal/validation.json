@@ -1,7 +1,10 @@
 {
-  "is_valid": true,
-  "status": "VALIDATED",
+  "is_valid": false,
+  "status": "REQUIRES_HUMAN",
   "syntax_ok": true,
-  "removed_field_referenced": false,
-  "errors": []
+  "removed_field_referenced": true,
+  "requires_human_reason": "Removed column 'email' is used in WHERE filter clause. Modifying business logic predicates requires manual engineer review.",
+  "errors": [
+    "Removed column 'email' is used in WHERE filter clause."
+  ]
 }

@@ -1,16 +1,26 @@
 import sqlglot
 from sqlglot import exp, parse_one
 import difflib
+from enum import Enum
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from app.schema_engine.diff import ChangeSet, ChangeType
 
 
+class RemediationStatus(str, Enum):
+    VALIDATED = "VALIDATED"
+    REQUIRES_HUMAN = "REQUIRES_HUMAN"
+    SEMANTIC_SAFETY_UNKNOWN = "SEMANTIC_SAFETY_UNKNOWN"
+    REMEDIATION_FAILED = "REMEDIATION_FAILED"
+    REMEDIATION_NOT_GENERATED = "REMEDIATION_NOT_GENERATED"
+
+
 class RemediationValidationResult(BaseModel):
     is_valid: bool
-    status: str  # VALIDATED, REMEDIATION_FAILED
+    status: RemediationStatus
     syntax_ok: bool
     removed_field_referenced: bool
+    requires_human_reason: Optional[str] = None
     errors: List[str] = []
 
 
@@ -23,17 +33,38 @@ class RemediationArtifact(BaseModel):
 
 
 class SQLRemediationEngine:
+    """
+    Semantic SQL Remediation Engine.
+    Transforms AST only when semantic safety can be proven deterministically.
+    If a removed column is referenced in WHERE, JOIN, HAVING, GROUP BY, ORDER BY,
+    or CASE predicates, automatic patch approval is DENIED and human intervention is required.
+    """
+
     @staticmethod
     def remediate_dbt_model(
         file_path: str,
-        original_sql: str,
+        original_sql: Optional[str],
         changes: ChangeSet
     ) -> RemediationArtifact:
-        """Remediate downstream SQL query across SELECT, WHERE, GROUP BY, ORDER BY, and HAVING clauses using SQLGlot AST."""
-        
+        if not original_sql or not original_sql.strip():
+            return RemediationArtifact(
+                file_path=file_path,
+                original_sql="",
+                remediated_sql="",
+                unified_diff="",
+                validation=RemediationValidationResult(
+                    is_valid=False,
+                    status=RemediationStatus.REMEDIATION_NOT_GENERATED,
+                    syntax_ok=False,
+                    removed_field_referenced=False,
+                    requires_human_reason="Downstream source SQL unavailable for candidate model.",
+                    errors=["No downstream SQL source provided for remediation analysis."]
+                )
+            )
+
         errors: List[str] = []
         breaking_changes = [c for c in changes.changes if c.is_breaking]
-        
+
         removed_columns = [
             c.field for c in breaking_changes if c.change_type == ChangeType.COLUMN_REMOVED
         ]
@@ -43,7 +74,7 @@ class SQLRemediationEngine:
             if c.change_type == ChangeType.COLUMN_RENAMED and c.old_state and c.proposed_state
         }
 
-        # 1. Parse SQL with SQLGlot
+        # 1. Parse original SQL
         try:
             expression = parse_one(original_sql, read="snowflake")
         except Exception as e:
@@ -54,17 +85,73 @@ class SQLRemediationEngine:
                 unified_diff="",
                 validation=RemediationValidationResult(
                     is_valid=False,
-                    status="REMEDIATION_FAILED",
+                    status=RemediationStatus.REMEDIATION_FAILED,
                     syntax_ok=False,
                     removed_field_referenced=True,
-                    errors=[f"SQL Parsing error before remediation: {str(e)}"]
+                    errors=[f"SQL parsing failure before remediation: {str(e)}"]
                 )
             )
 
-        # 2. Comprehensive Multi-Clause AST Transformation
+        # 2. Check for semantic predicate usage (WHERE, JOIN, HAVING, GROUP BY, ORDER BY, CASE)
+        semantic_violations: List[str] = []
+
+        for node in expression.walk():
+            # Check WHERE clause
+            if isinstance(node, exp.Where):
+                cols = [c.name.lower() for c in node.find_all(exp.Column)]
+                for r in removed_columns:
+                    if r.lower() in cols:
+                        semantic_violations.append(f"Removed column '{r}' is used in WHERE filter clause.")
+
+            # Check JOIN condition
+            elif isinstance(node, exp.Join):
+                cols = [c.name.lower() for c in node.find_all(exp.Column)]
+                for r in removed_columns:
+                    if r.lower() in cols:
+                        semantic_violations.append(f"Removed column '{r}' is used in JOIN predicate.")
+
+            # Check HAVING clause
+            elif isinstance(node, exp.Having):
+                cols = [c.name.lower() for c in node.find_all(exp.Column)]
+                for r in removed_columns:
+                    if r.lower() in cols:
+                        semantic_violations.append(f"Removed column '{r}' is used in HAVING clause.")
+
+            # Check GROUP BY clause
+            elif isinstance(node, exp.Group):
+                cols = [c.name.lower() for c in node.find_all(exp.Column)]
+                for r in removed_columns:
+                    if r.lower() in cols:
+                        semantic_violations.append(f"Removed column '{r}' is used in GROUP BY clause.")
+
+            # Check ORDER BY clause
+            elif isinstance(node, exp.Order):
+                cols = [c.name.lower() for c in node.find_all(exp.Column)]
+                for r in removed_columns:
+                    if r.lower() in cols:
+                        semantic_violations.append(f"Removed column '{r}' is used in ORDER BY clause.")
+
+        # If semantic violations exist, refuse automatic remediation approval
+        if semantic_violations:
+            reason = " ".join(semantic_violations) + " Modifying business logic predicates requires manual engineer review."
+            return RemediationArtifact(
+                file_path=file_path,
+                original_sql=original_sql,
+                remediated_sql=original_sql,
+                unified_diff="",
+                validation=RemediationValidationResult(
+                    is_valid=False,
+                    status=RemediationStatus.REQUIRES_HUMAN,
+                    syntax_ok=True,
+                    removed_field_referenced=True,
+                    requires_human_reason=reason,
+                    errors=semantic_violations
+                )
+            )
+
+        # 3. Transform SELECT projections & Explicit Renames safely
         def transform_ast(node):
             if isinstance(node, exp.Select):
-                # A. SELECT List
                 new_expressions = []
                 for select_expr in node.expressions:
                     cols = list(select_expr.find_all(exp.Column))
@@ -72,7 +159,7 @@ class SQLRemediationEngine:
                     if should_remove:
                         continue
 
-                    # Rename column references if renamed
+                    # Rewrite explicit renames
                     for col in cols:
                         if col.name.lower() in [r.lower() for r in renamed_columns.keys()]:
                             new_name = renamed_columns[col.name.lower()]
@@ -82,52 +169,17 @@ class SQLRemediationEngine:
 
                 node.set("expressions", new_expressions)
 
-                # B. WHERE Clause
-                where_clause = node.args.get("where")
-                if where_clause:
-                    where_cols = [c.name.lower() for c in where_clause.find_all(exp.Column)]
-                    if any(r.lower() in where_cols for r in removed_columns):
-                        node.set("where", None)
-
-                # C. GROUP BY Clause
-                group_clause = node.args.get("group")
-                if group_clause:
-                    new_groups = []
-                    for g_expr in group_clause.expressions:
-                        g_cols = [c.name.lower() for c in g_expr.find_all(exp.Column)]
-                        if not any(r.lower() in g_cols for r in removed_columns):
-                            new_groups.append(g_expr)
-                    if new_groups:
-                        group_clause.set("expressions", new_groups)
-                    else:
-                        node.set("group", None)
-
-                # D. ORDER BY Clause
-                order_clause = node.args.get("order")
-                if order_clause:
-                    new_orders = []
-                    for o_expr in order_clause.expressions:
-                        o_cols = [c.name.lower() for c in o_expr.find_all(exp.Column)]
-                        if not any(r.lower() in o_cols for r in removed_columns):
-                            new_orders.append(o_expr)
-                    if new_orders:
-                        order_clause.set("expressions", new_orders)
-                    else:
-                        node.set("order", None)
-
             return node
 
         remediated_ast = expression.transform(transform_ast)
         remediated_sql = remediated_ast.sql(pretty=True, dialect="snowflake")
 
-        # 3. Static Validation with SQLGlot
+        # 4. Static Validation
         syntax_ok = True
         removed_referenced = False
 
         try:
             validated_ast = parse_one(remediated_sql, read="snowflake")
-            
-            # Verify no deleted column is referenced anywhere in remediated AST
             found_cols = [c.name.lower() for c in validated_ast.find_all(exp.Column)]
             for rem in removed_columns:
                 if rem.lower() in found_cols:
@@ -138,9 +190,8 @@ class SQLRemediationEngine:
             errors.append(f"Remediated SQL syntax invalid: {str(ve)}")
 
         is_valid = syntax_ok and not removed_referenced
-        status = "VALIDATED" if is_valid else "REMEDIATION_FAILED"
+        status = RemediationStatus.VALIDATED if is_valid else RemediationStatus.REMEDIATION_FAILED
 
-        # 4. Generate Unified Diff
         diff_lines = list(difflib.unified_diff(
             original_sql.splitlines(keepends=True),
             remediated_sql.splitlines(keepends=True),

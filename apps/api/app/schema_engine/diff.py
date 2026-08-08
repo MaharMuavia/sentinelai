@@ -42,61 +42,70 @@ class SchemaChange(BaseModel):
 
 class ChangeSet(BaseModel):
     dataset_urn: str
-    source: str = "manual"  # manual, github_pr, json_diff
+    source: str = "manual"  # manual, github_pr, json_diff, sql_ddl
     timestamp: str = Field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc).isoformat())
     changes: List[SchemaChange]
 
 
 class SchemaDiffEngine:
+    """
+    Deterministic Schema Diff Engine.
+    Compares before and after SchemaSnapshots with strict semantic correctness.
+    NEVER infers a column rename simply because a removed column and an added column share the same data type.
+    Renames are recorded ONLY when explicitly declared in DDL or metadata mapping.
+    """
+
     @staticmethod
-    def diff(before: SchemaSnapshot, after: SchemaSnapshot, source: str = "manual") -> ChangeSet:
+    def diff(
+        before: SchemaSnapshot,
+        after: SchemaSnapshot,
+        source: str = "manual",
+        explicit_renames: Optional[Dict[str, str]] = None
+    ) -> ChangeSet:
         before_fields: Dict[str, SchemaField] = {f.name.lower(): f for f in before.fields}
         after_fields: Dict[str, SchemaField] = {f.name.lower(): f for f in after.fields}
+        renames = {k.lower(): v.lower() for k, v in (explicit_renames or {}).items()}
 
         changes: List[SchemaChange] = []
 
-        # Check removed fields or potential renames
         removed_names = set(before_fields.keys()) - set(after_fields.keys())
         added_names = set(after_fields.keys()) - set(before_fields.keys())
         common_names = set(before_fields.keys()) & set(after_fields.keys())
 
-        # Simple rename detection heuristic: if 1 removed and 1 added with same type, check if it's a rename
-        renamed_pairs: Dict[str, str] = {}
+        # 1. Process explicit renames first
+        processed_renames: set = set()
         for r_name in list(removed_names):
-            r_field = before_fields[r_name]
-            for a_name in list(added_names):
+            if r_name in renames and renames[r_name] in added_names:
+                a_name = renames[r_name]
+                b_field = before_fields[r_name]
                 a_field = after_fields[a_name]
-                if r_field.type.lower() == a_field.type.lower() and r_field.nullable == a_field.nullable:
-                    # Treat as candidate rename if names are somewhat similar or exact match in type
-                    # For safety, if there's an explicit rename hint or 1-to-1 match:
-                    renamed_pairs[r_name] = a_name
-                    break
 
-        # Record explicitly removed columns (not detected as renames)
-        for r_name in sorted(removed_names):
-            if r_name in renamed_pairs:
-                a_name = renamed_pairs[r_name]
                 changes.append(SchemaChange(
-                    field=before_fields[r_name].name,
+                    field=b_field.name,
                     change_type=ChangeType.COLUMN_RENAMED,
-                    old_state={"name": before_fields[r_name].name, "type": before_fields[r_name].type},
-                    proposed_state={"name": after_fields[a_name].name, "type": after_fields[a_name].type},
+                    old_state={"name": b_field.name, "type": b_field.type, "nullable": b_field.nullable},
+                    proposed_state={"name": a_field.name, "type": a_field.type, "nullable": a_field.nullable},
                     is_breaking=True,
-                    details=f"Field '{before_fields[r_name].name}' renamed to '{after_fields[a_name].name}'"
+                    details=f"Field '{b_field.name}' explicitly renamed to '{a_field.name}'"
                 ))
+                processed_renames.add(r_name)
                 added_names.remove(a_name)
-            else:
-                f = before_fields[r_name]
-                changes.append(SchemaChange(
-                    field=f.name,
-                    change_type=ChangeType.COLUMN_REMOVED,
-                    old_state={"name": f.name, "type": f.type, "nullable": f.nullable},
-                    proposed_state=None,
-                    is_breaking=True,
-                    details=f"Field '{f.name}' removed from dataset"
-                ))
 
-        # Record newly added columns
+        removed_names -= processed_renames
+
+        # 2. Record explicitly removed columns (never wrongly inferred as renames)
+        for r_name in sorted(removed_names):
+            f = before_fields[r_name]
+            changes.append(SchemaChange(
+                field=f.name,
+                change_type=ChangeType.COLUMN_REMOVED,
+                old_state={"name": f.name, "type": f.type, "nullable": f.nullable},
+                proposed_state=None,
+                is_breaking=True,
+                details=f"Field '{f.name}' removed from dataset schema"
+            ))
+
+        # 3. Record newly added columns
         for a_name in sorted(added_names):
             f = after_fields[a_name]
             changes.append(SchemaChange(
@@ -105,10 +114,10 @@ class SchemaDiffEngine:
                 old_state=None,
                 proposed_state={"name": f.name, "type": f.type, "nullable": f.nullable},
                 is_breaking=False,  # Additive change is non-breaking
-                details=f"New field '{f.name}' added to dataset"
+                details=f"New field '{f.name}' added to dataset schema"
             ))
 
-        # Compare common columns for type and nullability changes
+        # 4. Compare common columns for type and nullability modifications
         for c_name in sorted(common_names):
             b_field = before_fields[c_name]
             a_field = after_fields[c_name]
@@ -121,7 +130,7 @@ class SchemaDiffEngine:
                     old_state={"type": b_field.type},
                     proposed_state={"type": a_field.type},
                     is_breaking=True,
-                    details=f"Type of '{b_field.name}' changed from '{b_field.type}' to '{a_field.type}'"
+                    details=f"Type of field '{b_field.name}' changed from '{b_field.type}' to '{a_field.type}'"
                 ))
 
             # Nullability change
@@ -134,7 +143,7 @@ class SchemaDiffEngine:
                     old_state={"nullable": b_field.nullable},
                     proposed_state={"nullable": a_field.nullable},
                     is_breaking=is_breaking,
-                    details=f"Nullability of '{b_field.name}' changed from {b_field.nullable} to {a_field.nullable}"
+                    details=f"Nullability of field '{b_field.name}' changed from {b_field.nullable} to {a_field.nullable}"
                 ))
 
         return ChangeSet(

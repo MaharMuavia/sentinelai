@@ -3,5 +3,6 @@
   "status": "VALIDATED",
   "syntax_ok": true,
   "removed_field_referenced": false,
+  "requires_human_reason": null,
   "errors": []
 }

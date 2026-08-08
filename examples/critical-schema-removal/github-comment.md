@@ -12,14 +12,8 @@
 - `raw_customers → churn_features → churn_model`
 
 ### Recommended Action:
-Update downstream dbt models and dashboard field references before merging PR. Apply the generated and validated SQLGlot remediation patch to remove references to 'email'.
+Review affected downstream dbt models and dashboard field references before merging PR. Apply generated candidate remediation patch where semantic safety is validated.
 
 ```diff
---- a/models/marts/customer_360.sql
-+++ b/models/marts/customer_360.sql
-@@ -1 +1,4 @@
--SELECT customer_id, email, lifetime_value FROM customer_360 WHERE email IS NOT NULL;+SELECT
-+  customer_id,
-+  lifetime_value
-+FROM customer_360
+
 ```
