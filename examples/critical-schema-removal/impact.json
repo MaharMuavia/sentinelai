@@ -1,0 +1,54 @@
+{
+  "severity": "CRITICAL",
+  "evidence_completeness": 100.0,
+  "risk_factors": [
+    {
+      "name": "BREAKING_SCHEMA_CHANGE",
+      "impact": "HIGH",
+      "description": "1 breaking schema modification(s) detected (e.g. Field 'email' removed from dataset)"
+    },
+    {
+      "name": "CONFIRMED_DOWNSTREAM_CONSUMERS",
+      "impact": "HIGH",
+      "description": "4 downstream asset(s) are confirmed users of the modified column."
+    },
+    {
+      "name": "CRITICAL_BUSINESS_ASSET_IMPACT",
+      "impact": "CRITICAL",
+      "description": "Affected downstream assets include Tier-1 Executive Dashboards and Production ML Models."
+    }
+  ],
+  "completeness_breakdown": [
+    {
+      "signal_name": "SCHEMA_VERIFIED",
+      "is_present": true,
+      "weight": 25.0,
+      "description": "Current schema snapshot verified against DataHub GMS metadata catalog"
+    },
+    {
+      "signal_name": "COLUMN_LINEAGE_AVAILABLE",
+      "is_present": true,
+      "weight": 25.0,
+      "description": "Fine-grained column-level lineage verified across downstream models"
+    },
+    {
+      "signal_name": "QUERY_USAGE_HISTORY",
+      "is_present": true,
+      "weight": 20.0,
+      "description": "Query execution log history inspected for exact column references"
+    },
+    {
+      "signal_name": "OWNERSHIP_ASSIGNED",
+      "is_present": true,
+      "weight": 15.0,
+      "description": "Technical and business owners identified for all affected assets"
+    },
+    {
+      "signal_name": "EXACT_LINEAGE_PATH_VERIFIED",
+      "is_present": true,
+      "weight": 15.0,
+      "description": "Multi-hop lineage paths fully traced from root dataset to end consumers"
+    }
+  ],
+  "policy_triggered": "CRITICAL: Breaking schema operation on verified field with confirmed critical downstream dashboards/ML models"
+}

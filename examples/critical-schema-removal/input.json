@@ -1,0 +1,64 @@
+{
+  "before": {
+    "dataset": {
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
+      "platform": "snowflake",
+      "name": "raw_customers",
+      "env": "PROD"
+    },
+    "fields": [
+      {
+        "name": "customer_id",
+        "type": "STRING",
+        "nullable": false,
+        "description": "Primary key"
+      },
+      {
+        "name": "email",
+        "type": "STRING",
+        "nullable": true,
+        "description": "Customer email address"
+      },
+      {
+        "name": "country",
+        "type": "STRING",
+        "nullable": true,
+        "description": "Country code"
+      },
+      {
+        "name": "created_at",
+        "type": "TIMESTAMP",
+        "nullable": false,
+        "description": "Created timestamp"
+      }
+    ]
+  },
+  "after": {
+    "dataset": {
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
+      "platform": "snowflake",
+      "name": "raw_customers",
+      "env": "PROD"
+    },
+    "fields": [
+      {
+        "name": "customer_id",
+        "type": "STRING",
+        "nullable": false,
+        "description": "Primary key"
+      },
+      {
+        "name": "country",
+        "type": "STRING",
+        "nullable": true,
+        "description": "Country code"
+      },
+      {
+        "name": "created_at",
+        "type": "TIMESTAMP",
+        "nullable": false,
+        "description": "Created timestamp"
+      }
+    ]
+  }
+}

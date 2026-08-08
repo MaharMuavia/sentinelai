@@ -1,0 +1,35 @@
+name: Sentinel AI Pre-Merge Gate
+on:
+  pull_request:
+    paths:
+      - 'models/**'
+      - 'dbt/**'
+      - '**/*.sql'
+
+jobs:
+  sentinel-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Dependencies
+        run: pip install -r apps/api/requirements.txt
+      - name: Extract Schema Diff
+        run: |
+          # Extract changed SQL files and detect schema modifications
+          python scripts/extract_pr_diff.py --pr ${{ github.event.pull_request.number }}
+      - name: Run Sentinel Investigation
+        env:
+          DATAHUB_GMS_URL: ${{ secrets.DATAHUB_GMS_URL }}
+          DATAHUB_GMS_TOKEN: ${{ secrets.DATAHUB_GMS_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python scripts/run_ci_check.py
+      - name: Post Results to PR
+        if: always()
+        run: |
+          echo '::notice::Sentinel AI investigation complete. See PR comments for details.'

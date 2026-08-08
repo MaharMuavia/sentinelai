@@ -1,0 +1,53 @@
+# Operating System & Temp files
+.DS_Store
+Thumbs.db
+*.stackdump
+grep.exe.stackdump
+
+# Databases and local storage
+*.db
+*.sqlite
+*.sqlite3
+sentinel.db
+apps/api/sentinel.db
+
+# Environment and secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Node / Next.js
+node_modules/
+apps/web/node_modules/
+.next/
+apps/web/.next/
+out/
+build/
+dist/
+.npm
+.yarn/
+*.log
+
+# IDEs & Editors
+.idea/
+.vscode/
+*.swp
+*.swo

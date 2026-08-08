@@ -1,0 +1,44 @@
+{
+  "severity": "LOW",
+  "evidence_completeness": 55.0,
+  "risk_factors": [
+    {
+      "name": "NON_BREAKING_CHANGE",
+      "impact": "LOW",
+      "description": "Proposed change is non-breaking (e.g. additive column addition or nullability relaxation)"
+    }
+  ],
+  "completeness_breakdown": [
+    {
+      "signal_name": "SCHEMA_VERIFIED",
+      "is_present": true,
+      "weight": 25.0,
+      "description": "Current schema snapshot verified against DataHub GMS metadata catalog"
+    },
+    {
+      "signal_name": "COLUMN_LINEAGE_AVAILABLE",
+      "is_present": false,
+      "weight": 25.0,
+      "description": "Fine-grained column-level lineage verified across downstream models"
+    },
+    {
+      "signal_name": "QUERY_USAGE_HISTORY",
+      "is_present": false,
+      "weight": 20.0,
+      "description": "Query execution log history inspected for exact column references"
+    },
+    {
+      "signal_name": "OWNERSHIP_ASSIGNED",
+      "is_present": true,
+      "weight": 15.0,
+      "description": "Technical and business owners identified for all affected assets"
+    },
+    {
+      "signal_name": "EXACT_LINEAGE_PATH_VERIFIED",
+      "is_present": true,
+      "weight": 15.0,
+      "description": "Multi-hop lineage paths fully traced from root dataset to end consumers"
+    }
+  ],
+  "policy_triggered": "LOW: Non-breaking or additive change with no downstream impact"
+}

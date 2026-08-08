@@ -1,0 +1,52 @@
+{
+  "before": {
+    "dataset": {
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
+      "platform": "snowflake",
+      "name": "raw_customers",
+      "env": "PROD"
+    },
+    "fields": [
+      {
+        "name": "customer_id",
+        "type": "STRING",
+        "nullable": false,
+        "description": null
+      },
+      {
+        "name": "email",
+        "type": "STRING",
+        "nullable": true,
+        "description": null
+      }
+    ]
+  },
+  "after": {
+    "dataset": {
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
+      "platform": "snowflake",
+      "name": "raw_customers",
+      "env": "PROD"
+    },
+    "fields": [
+      {
+        "name": "customer_id",
+        "type": "STRING",
+        "nullable": false,
+        "description": null
+      },
+      {
+        "name": "email",
+        "type": "STRING",
+        "nullable": true,
+        "description": null
+      },
+      {
+        "name": "signup_source",
+        "type": "STRING",
+        "nullable": true,
+        "description": null
+      }
+    ]
+  }
+}

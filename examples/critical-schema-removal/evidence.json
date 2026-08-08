@@ -1,0 +1,382 @@
+{
+  "dataset_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
+  "dataset_name": "raw_customers",
+  "changes": {
+    "dataset_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
+    "source": "github_pr",
+    "timestamp": "2026-08-08T07:48:07.249307",
+    "changes": [
+      {
+        "field": "email",
+        "change_type": "COLUMN_REMOVED",
+        "old_state": {
+          "name": "email",
+          "type": "STRING",
+          "nullable": true
+        },
+        "proposed_state": null,
+        "is_breaking": true,
+        "details": "Field 'email' removed from dataset"
+      }
+    ]
+  },
+  "classified_assets": [
+    {
+      "asset_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
+      "name": "customer_360",
+      "platform": "dbt",
+      "asset_type": "DATASET",
+      "classification": "CONFIRMED_IMPACT",
+      "owners": [
+        "Alex Rodriguez"
+      ],
+      "tags": [
+        "Tier_1",
+        "Production_Model"
+      ],
+      "hop_count": 1,
+      "evidence": [
+        {
+          "id": "ev_col_1",
+          "type": "COLUMN_LINEAGE",
+          "source_field": "email",
+          "target_field": "email",
+          "query_reference": null,
+          "description": "Verified field lineage: raw_customers.email \u2192 customer_360.email"
+        },
+        {
+          "id": "ev_qry_2",
+          "type": "QUERY_USAGE",
+          "source_field": null,
+          "target_field": null,
+          "query_reference": "q_109283",
+          "description": "Recorded SQL query usage referencing field 'email': SELECT customer_id, email, lifetime_value FROM customer_360 WHERE email IS NOT NULL;"
+        },
+        {
+          "id": "ev_qry_3",
+          "type": "QUERY_USAGE",
+          "source_field": null,
+          "target_field": null,
+          "query_reference": "q_109455",
+          "description": "Recorded SQL query usage referencing field 'email': SELECT LOWER(SPLIT_PART(email, '@', 2)) as email_domain FROM customer_360;"
+        },
+        {
+          "id": "ev_tbl_4",
+          "type": "TABLE_LINEAGE",
+          "source_field": null,
+          "target_field": null,
+          "query_reference": null,
+          "description": "DataHub downstream lineage path (hop distance: 1)"
+        }
+      ]
+    },
+    {
+      "asset_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,marketing_dashboard,PROD)",
+      "name": "marketing_dashboard",
+      "platform": "looker",
+      "asset_type": "DASHBOARD",
+      "classification": "CONFIRMED_IMPACT",
+      "owners": [
+        "Emily Watson"
+      ],
+      "tags": [
+        "Executive_Tier",
+        "Critical_Dashboard"
+      ],
+      "hop_count": 2,
+      "evidence": [
+        {
+          "id": "ev_col_1",
+          "type": "COLUMN_LINEAGE",
+          "source_field": "email",
+          "target_field": "customer_email",
+          "query_reference": null,
+          "description": "Verified field lineage: raw_customers.email \u2192 marketing_dashboard.customer_email"
+        },
+        {
+          "id": "ev_tbl_2",
+          "type": "TABLE_LINEAGE",
+          "source_field": null,
+          "target_field": null,
+          "query_reference": null,
+          "description": "DataHub downstream lineage path (hop distance: 2)"
+        }
+      ]
+    },
+    {
+      "asset_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,executive_customer_dashboard,PROD)",
+      "name": "executive_customer_dashboard",
+      "platform": "looker",
+      "asset_type": "DASHBOARD",
+      "classification": "POTENTIAL_IMPACT",
+      "owners": [
+        "Alex Rodriguez"
+      ],
+      "tags": [
+        "Executive_Tier"
+      ],
+      "hop_count": 2,
+      "evidence": [
+        {
+          "id": "ev_tbl_1",
+          "type": "TABLE_LINEAGE",
+          "source_field": null,
+          "target_field": null,
+          "query_reference": null,
+          "description": "DataHub downstream lineage path (hop distance: 2)"
+        }
+      ]
+    },
+    {
+      "asset_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,churn_features,PROD)",
+      "name": "churn_features",
+      "platform": "dbt",
+      "asset_type": "DATASET",
+      "classification": "CONFIRMED_IMPACT",
+      "owners": [
+        "David Kim"
+      ],
+      "tags": [
+        "ML_Feature_Store",
+        "Tier_1"
+      ],
+      "hop_count": 2,
+      "evidence": [
+        {
+          "id": "ev_col_1",
+          "type": "COLUMN_LINEAGE",
+          "source_field": "email",
+          "target_field": "email_domain",
+          "query_reference": null,
+          "description": "Verified field lineage: raw_customers.email \u2192 churn_features.email_domain"
+        },
+        {
+          "id": "ev_tbl_2",
+          "type": "TABLE_LINEAGE",
+          "source_field": null,
+          "target_field": null,
+          "query_reference": null,
+          "description": "DataHub downstream lineage path (hop distance: 2)"
+        }
+      ]
+    },
+    {
+      "asset_urn": "urn:li:dataset:(urn:li:dataPlatform:mlflow,churn_model,PROD)",
+      "name": "churn_model",
+      "platform": "mlflow",
+      "asset_type": "ML_MODEL",
+      "classification": "CONFIRMED_IMPACT",
+      "owners": [
+        "David Kim"
+      ],
+      "tags": [
+        "Production_ML",
+        "Critical_Model"
+      ],
+      "hop_count": 3,
+      "evidence": [
+        {
+          "id": "ev_col_1",
+          "type": "COLUMN_LINEAGE",
+          "source_field": "email_domain",
+          "target_field": "feature_email_domain",
+          "query_reference": null,
+          "description": "Verified field lineage: raw_customers.email_domain \u2192 churn_model.feature_email_domain"
+        },
+        {
+          "id": "ev_tbl_2",
+          "type": "TABLE_LINEAGE",
+          "source_field": null,
+          "target_field": null,
+          "query_reference": null,
+          "description": "DataHub downstream lineage path (hop distance: 3)"
+        }
+      ]
+    },
+    {
+      "asset_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,billing_dashboard,PROD)",
+      "name": "billing_dashboard",
+      "platform": "looker",
+      "asset_type": "DASHBOARD",
+      "classification": "UNLIKELY_IMPACT",
+      "owners": [
+        "Finance Team"
+      ],
+      "tags": [
+        "Finance"
+      ],
+      "hop_count": 2,
+      "evidence": [
+        {
+          "id": "ev_tbl_1",
+          "type": "TABLE_LINEAGE",
+          "source_field": null,
+          "target_field": null,
+          "query_reference": null,
+          "description": "DataHub downstream lineage path (hop distance: 2)"
+        },
+        {
+          "id": "ev_none_2",
+          "type": "METADATA_TAG",
+          "source_field": null,
+          "target_field": null,
+          "query_reference": null,
+          "description": "Asset downstream of dataset but does NOT consume the removed column 'email'"
+        }
+      ]
+    }
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
+        "label": "raw_customers",
+        "type": "CHANGED_DATASET",
+        "platform": "snowflake",
+        "classification": "CONFIRMED_IMPACT",
+        "owners": [
+          "Sarah Chen"
+        ],
+        "tags": [
+          "PII",
+          "Core_Entity",
+          "Tier_1"
+        ]
+      },
+      {
+        "id": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
+        "label": "customer_360",
+        "type": "CONFIRMED_IMPACT",
+        "platform": "dbt",
+        "classification": "CONFIRMED_IMPACT",
+        "owners": [
+          "Alex Rodriguez"
+        ],
+        "tags": [
+          "Tier_1",
+          "Production_Model"
+        ]
+      },
+      {
+        "id": "urn:li:dataset:(urn:li:dataPlatform:looker,marketing_dashboard,PROD)",
+        "label": "marketing_dashboard",
+        "type": "CONFIRMED_IMPACT",
+        "platform": "looker",
+        "classification": "CONFIRMED_IMPACT",
+        "owners": [
+          "Emily Watson"
+        ],
+        "tags": [
+          "Executive_Tier",
+          "Critical_Dashboard"
+        ]
+      },
+      {
+        "id": "urn:li:dataset:(urn:li:dataPlatform:looker,executive_customer_dashboard,PROD)",
+        "label": "executive_customer_dashboard",
+        "type": "POTENTIAL_IMPACT",
+        "platform": "looker",
+        "classification": "POTENTIAL_IMPACT",
+        "owners": [
+          "Alex Rodriguez"
+        ],
+        "tags": [
+          "Executive_Tier"
+        ]
+      },
+      {
+        "id": "urn:li:dataset:(urn:li:dataPlatform:dbt,churn_features,PROD)",
+        "label": "churn_features",
+        "type": "CONFIRMED_IMPACT",
+        "platform": "dbt",
+        "classification": "CONFIRMED_IMPACT",
+        "owners": [
+          "David Kim"
+        ],
+        "tags": [
+          "ML_Feature_Store",
+          "Tier_1"
+        ]
+      },
+      {
+        "id": "urn:li:dataset:(urn:li:dataPlatform:mlflow,churn_model,PROD)",
+        "label": "churn_model",
+        "type": "CONFIRMED_IMPACT",
+        "platform": "mlflow",
+        "classification": "CONFIRMED_IMPACT",
+        "owners": [
+          "David Kim"
+        ],
+        "tags": [
+          "Production_ML",
+          "Critical_Model"
+        ]
+      },
+      {
+        "id": "urn:li:dataset:(urn:li:dataPlatform:looker,billing_dashboard,PROD)",
+        "label": "billing_dashboard",
+        "type": "UNAFFECTED",
+        "platform": "looker",
+        "classification": "UNLIKELY_IMPACT",
+        "owners": [
+          "Finance Team"
+        ],
+        "tags": [
+          "Finance"
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "source": "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
+        "target": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
+        "lineage_type": "FIELD_LEVEL",
+        "field_mapping": "email \u2192 email",
+        "hop_count": 1,
+        "evidence_source": "DataHub Column Lineage & Query Usage"
+      },
+      {
+        "source": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
+        "target": "urn:li:dataset:(urn:li:dataPlatform:looker,marketing_dashboard,PROD)",
+        "lineage_type": "FIELD_LEVEL",
+        "field_mapping": "email \u2192 email",
+        "hop_count": 2,
+        "evidence_source": "DataHub Column Lineage & Query Usage"
+      },
+      {
+        "source": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
+        "target": "urn:li:dataset:(urn:li:dataPlatform:looker,executive_customer_dashboard,PROD)",
+        "lineage_type": "TABLE_LEVEL",
+        "field_mapping": null,
+        "hop_count": 2,
+        "evidence_source": "DataHub Dataset Lineage"
+      },
+      {
+        "source": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
+        "target": "urn:li:dataset:(urn:li:dataPlatform:dbt,churn_features,PROD)",
+        "lineage_type": "FIELD_LEVEL",
+        "field_mapping": "email \u2192 email",
+        "hop_count": 2,
+        "evidence_source": "DataHub Column Lineage & Query Usage"
+      },
+      {
+        "source": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
+        "target": "urn:li:dataset:(urn:li:dataPlatform:mlflow,churn_model,PROD)",
+        "lineage_type": "FIELD_LEVEL",
+        "field_mapping": "email \u2192 email",
+        "hop_count": 3,
+        "evidence_source": "DataHub Column Lineage & Query Usage"
+      },
+      {
+        "source": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
+        "target": "urn:li:dataset:(urn:li:dataPlatform:looker,billing_dashboard,PROD)",
+        "lineage_type": "TABLE_LEVEL",
+        "field_mapping": null,
+        "hop_count": 2,
+        "evidence_source": "DataHub Dataset Lineage"
+      }
+    ]
+  },
+  "confirmed_consumers_count": 4,
+  "potential_consumers_count": 1
+}

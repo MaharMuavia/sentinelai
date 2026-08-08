@@ -1,0 +1,34 @@
+{
+  "dataset": {
+    "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
+    "name": "raw_customers",
+    "platform": "snowflake",
+    "env": "PROD"
+  },
+  "fields": [
+    {
+      "name": "customer_id",
+      "type": "STRING",
+      "nullable": false,
+      "description": "Unique customer identifier"
+    },
+    {
+      "name": "email",
+      "type": "STRING",
+      "nullable": true,
+      "description": "Primary customer contact email address"
+    },
+    {
+      "name": "country",
+      "type": "STRING",
+      "nullable": true,
+      "description": "Customer ISO country code"
+    },
+    {
+      "name": "created_at",
+      "type": "TIMESTAMP",
+      "nullable": false,
+      "description": "Account registration timestamp"
+    }
+  ]
+}
