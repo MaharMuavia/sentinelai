@@ -118,6 +118,13 @@ one-time commands in Ubuntu. Keep the runner process active while the PR check
 runs. The runner must be able to reach those two localhost ports. Docker
 Desktop's WSL integration is needed only if you want to control the Compose
 stack from Ubuntu; the stack may remain managed by Docker Desktop on Windows.
+Install the Python package manager once in Ubuntu so the live firewall can use
+the system interpreter:
+
+```bash
+sudo apt update
+sudo apt install -y python3-pip
+```
 
 ## Reproducible demo
 
