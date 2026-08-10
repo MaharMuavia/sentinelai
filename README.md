@@ -99,8 +99,10 @@ endpoints. `GITHUB_REPOSITORY` and `GITHUB_TOKEN` are optional.
 The GitHub Actions firewall is configured for a free local deployment: it runs
 on a trusted Ubuntu self-hosted runner and connects to DataHub at
 `http://localhost:8080` and the Compose MCP sidecar at
-`http://localhost:8001/mcp`. Add only the `DATAHUB_GMS_TOKEN` repository secret
-under **Settings > Secrets and variables > Actions**. Keep the repository
+`http://localhost:8001/mcp`. Add a repository secret named
+`DATAHUB_GMS_TOKEN` (or the existing `SENTINEL` secret) containing the DataHub
+service-account token under **Settings > Secrets and variables > Actions**.
+Keep the repository
 private or restrict write access to trusted collaborators while a self-hosted
 runner is connected; GitHub warns that public-repository self-hosted runners
 can be compromised by untrusted workflow code. Fork pull requests are skipped

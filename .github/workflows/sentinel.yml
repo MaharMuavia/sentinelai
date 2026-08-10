@@ -66,10 +66,10 @@ jobs:
       - name: Validate local DataHub configuration
         env:
           DATAHUB_GMS_URL: http://localhost:8080
-          DATAHUB_GMS_TOKEN: ${{ secrets.DATAHUB_GMS_TOKEN }}
+          DATAHUB_GMS_TOKEN: ${{ secrets.DATAHUB_GMS_TOKEN || secrets.SENTINEL }}
           DATAHUB_MCP_ENDPOINT: http://localhost:8001/mcp
         run: |
-          test -n "$DATAHUB_GMS_TOKEN" || (echo "::error::DATAHUB_GMS_TOKEN repository secret is required"; exit 1)
+          test -n "$DATAHUB_GMS_TOKEN" || (echo "::error::DATAHUB_GMS_TOKEN or SENTINEL repository secret is required"; exit 1)
           curl --fail --silent --show-error "$DATAHUB_GMS_URL/health" >/dev/null
           curl --fail --silent --show-error "$DATAHUB_MCP_ENDPOINT" >/dev/null || true
       - name: Extract Real PR Schema Diff
@@ -81,7 +81,7 @@ jobs:
       - name: Run Sentinel Investigation Engine
         env:
           DATAHUB_GMS_URL: http://localhost:8080
-          DATAHUB_GMS_TOKEN: ${{ secrets.DATAHUB_GMS_TOKEN }}
+          DATAHUB_GMS_TOKEN: ${{ secrets.DATAHUB_GMS_TOKEN || secrets.SENTINEL }}
           DATAHUB_MCP_ENDPOINT: http://localhost:8001/mcp
           SENTINEL_DATA_MODE: live
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
