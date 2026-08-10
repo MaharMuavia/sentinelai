@@ -17,6 +17,8 @@ services:
     build:
       context: ./apps/datahub-mcp
       dockerfile: Dockerfile
+    ports:
+      - "${DATAHUB_MCP_PORT:-8001}:8000"
     environment:
       DATAHUB_GMS_URL: ${DATAHUB_DOCKER_GMS_URL:-http://host.docker.internal:8080}
       DATAHUB_GMS_TOKEN: ${DATAHUB_GMS_TOKEN:-}

@@ -66,7 +66,10 @@ Sentinel AI operates **before merge**. When a developer opens a GitHub PR modify
 
 - [ ] Verify GitHub repository is public: `https://github.com/MaharMuavia/sentinelai`
 - [ ] Configure a real test PR and GitHub token before claiming that a PR comment was posted live.
-- [ ] Add reachable `DATAHUB_GMS_URL`, `DATAHUB_GMS_TOKEN`, and `DATAHUB_MCP_ENDPOINT` repository secrets before treating the GitHub firewall check as live-verified.
+- [ ] Add the local DataHub service-account token as the `DATAHUB_GMS_TOKEN`
+repository secret, register the Ubuntu self-hosted runner, and keep the local
+DataHub/MCP Compose services running before treating the GitHub firewall check
+as live-verified.
 - [ ] Confirm Apache 2.0 license is visible in root `LICENSE`.
 - [ ] Record <3 minute video following the script above.
 - [ ] Upload video to YouTube or Vimeo and paste public URL into Devpost submission (Note: Loom is not an accepted target per Devpost rules).

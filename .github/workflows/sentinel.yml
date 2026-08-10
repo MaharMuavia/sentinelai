@@ -48,7 +48,10 @@ jobs:
   sentinel-firewall:
     name: Sentinel AI Change Impact Firewall
     needs: [backend-test, frontend-build]
-    runs-on: ubuntu-latest
+    # The live DataHub instance is intentionally local to the Ubuntu runner.
+    # Never execute this job for an untrusted fork on the self-hosted machine.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -60,15 +63,15 @@ jobs:
       - name: Install Dependencies
         run: |
           pip install -r apps/api/requirements.txt
-      - name: Validate live DataHub configuration
+      - name: Validate local DataHub configuration
         env:
-          DATAHUB_GMS_URL: ${{ secrets.DATAHUB_GMS_URL }}
+          DATAHUB_GMS_URL: http://localhost:8080
           DATAHUB_GMS_TOKEN: ${{ secrets.DATAHUB_GMS_TOKEN }}
-          DATAHUB_MCP_ENDPOINT: ${{ secrets.DATAHUB_MCP_ENDPOINT }}
+          DATAHUB_MCP_ENDPOINT: http://localhost:8001/mcp
         run: |
-          test -n "$DATAHUB_GMS_URL" || (echo "::error::DATAHUB_GMS_URL repository secret is required"; exit 1)
           test -n "$DATAHUB_GMS_TOKEN" || (echo "::error::DATAHUB_GMS_TOKEN repository secret is required"; exit 1)
-          test -n "$DATAHUB_MCP_ENDPOINT" || (echo "::error::DATAHUB_MCP_ENDPOINT repository secret is required"; exit 1)
+          curl --fail --silent --show-error "$DATAHUB_GMS_URL/health" >/dev/null
+          curl --fail --silent --show-error "$DATAHUB_MCP_ENDPOINT" >/dev/null || true
       - name: Extract Real PR Schema Diff
         run: |
           python scripts/extract_pr_diff.py \
@@ -77,9 +80,9 @@ jobs:
             --pr ${{ github.event.pull_request.number }}
       - name: Run Sentinel Investigation Engine
         env:
-          DATAHUB_GMS_URL: ${{ secrets.DATAHUB_GMS_URL }}
+          DATAHUB_GMS_URL: http://localhost:8080
           DATAHUB_GMS_TOKEN: ${{ secrets.DATAHUB_GMS_TOKEN }}
-          DATAHUB_MCP_ENDPOINT: ${{ secrets.DATAHUB_MCP_ENDPOINT }}
+          DATAHUB_MCP_ENDPOINT: http://localhost:8001/mcp
           SENTINEL_DATA_MODE: live
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}

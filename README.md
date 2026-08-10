@@ -96,11 +96,28 @@ server separately requires `TOOLS_IS_MUTATION_ENABLED=true` for mutation tools.
 Set `SENTINEL_AUTH_TOKEN` before enabling authenticated approval or mutation
 endpoints. `GITHUB_REPOSITORY` and `GITHUB_TOKEN` are optional.
 
-For the GitHub Actions firewall, add repository secrets named
-`DATAHUB_GMS_URL`, `DATAHUB_GMS_TOKEN`, and `DATAHUB_MCP_ENDPOINT`. The MCP
-endpoint must be reachable from GitHub-hosted runners; `localhost` and a
-private Docker-network address only work for the local demo. The workflow
-fails at a configuration preflight when these secrets are absent.
+The GitHub Actions firewall is configured for a free local deployment: it runs
+on a trusted Ubuntu self-hosted runner and connects to DataHub at
+`http://localhost:8080` and the Compose MCP sidecar at
+`http://localhost:8001/mcp`. Add only the `DATAHUB_GMS_TOKEN` repository secret
+under **Settings > Secrets and variables > Actions**. Keep the repository
+private or restrict write access to trusted collaborators while a self-hosted
+runner is connected; GitHub warns that public-repository self-hosted runners
+can be compromised by untrusted workflow code. Fork pull requests are skipped
+by the firewall job.
+
+Expose the MCP sidecar before starting the runner:
+
+```bash
+docker compose up -d --build datahub-mcp
+```
+
+Register the Ubuntu machine at **Repository > Settings > Actions > Runners >
+New self-hosted runner**, choose **Linux** and **x64**, and run GitHub's
+one-time commands in Ubuntu. Keep the runner process active while the PR check
+runs. The runner must be able to reach those two localhost ports. Docker
+Desktop's WSL integration is needed only if you want to control the Compose
+stack from Ubuntu; the stack may remain managed by Docker Desktop on Windows.
 
 ## Reproducible demo
 
