@@ -22,6 +22,26 @@ BASE_SHA/HEAD_SHA
   -> SQLite investigation and audit history
 ```
 
+```mermaid
+flowchart TD
+    A["GitHub PR: BASE_SHA to HEAD_SHA"] --> B["Extract schema diff and map repository"]
+    B --> C["Sentinel workflow orchestrator"]
+    C --> D["DataHub MCP client via JSON-RPC 2.0"]
+    D --> E["DataHub MCP server / GMS endpoint"]
+    E --> D
+    C --> F["Build provenance-backed impact graph"]
+    F --> G["Classify consumers and evidence"]
+    G --> H["Deterministic risk and CI verdict"]
+    C --> I["SQLGlot remediation engine"]
+    I --> J["Predicate safety check"]
+    J --> K["Validated patch or human review"]
+    H --> L["Human approval gate"]
+    L --> M["GitHub comment and CI enforcement"]
+    L --> N["DataHub writeback"]
+    C --> O["SQLite audit history"]
+    O --> P["Next.js dashboard"]
+```
+
 The MCP client uses `initialize`, `tools/list`, and the official SDK over either
 Streamable HTTP or local stdio. Read tools are `get_entities`, `list_schema_fields`,
 `get_lineage`, `get_lineage_paths_between`, and `get_dataset_queries`. Optional
