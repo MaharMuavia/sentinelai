@@ -15,7 +15,7 @@ class ChangeType(str, Enum):
 
 class SchemaField(BaseModel):
     name: str
-    type: str
+    type: Optional[str] = None
     nullable: bool = True
     description: Optional[str] = None
 
@@ -144,14 +144,19 @@ class SchemaDiffEngine:
             a_field = after_fields[c_name]
 
             # Type change
-            if b_field.type.lower() != a_field.type.lower():
+            if b_field.type != a_field.type and (b_field.type is not None or a_field.type is not None):
+                compatible = (
+                    SchemaDiffEngine.is_type_compatible(b_field.type, a_field.type)
+                    if b_field.type is not None and a_field.type is not None
+                    else False
+                )
                 changes.append(SchemaChange(
                     field=b_field.name,
                     change_type=ChangeType.TYPE_CHANGED,
                     old_state={"type": b_field.type},
                     proposed_state={"type": a_field.type},
-                    is_breaking=not SchemaDiffEngine.is_type_compatible(b_field.type, a_field.type),
-                    details=f"Type of field '{b_field.name}' changed from '{b_field.type}' to '{a_field.type}' ({'compatible widening' if SchemaDiffEngine.is_type_compatible(b_field.type, a_field.type) else 'potentially incompatible'})"
+                    is_breaking=not compatible,
+                    details=f"Type of field '{b_field.name}' changed from '{b_field.type}' to '{a_field.type}' ({'compatible widening' if compatible else 'potentially incompatible'})"
                 ))
 
             # Nullability change
