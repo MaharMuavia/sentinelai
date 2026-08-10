@@ -60,6 +60,15 @@ jobs:
       - name: Install Dependencies
         run: |
           pip install -r apps/api/requirements.txt
+      - name: Validate live DataHub configuration
+        env:
+          DATAHUB_GMS_URL: ${{ secrets.DATAHUB_GMS_URL }}
+          DATAHUB_GMS_TOKEN: ${{ secrets.DATAHUB_GMS_TOKEN }}
+          DATAHUB_MCP_ENDPOINT: ${{ secrets.DATAHUB_MCP_ENDPOINT }}
+        run: |
+          test -n "$DATAHUB_GMS_URL" || (echo "::error::DATAHUB_GMS_URL repository secret is required"; exit 1)
+          test -n "$DATAHUB_GMS_TOKEN" || (echo "::error::DATAHUB_GMS_TOKEN repository secret is required"; exit 1)
+          test -n "$DATAHUB_MCP_ENDPOINT" || (echo "::error::DATAHUB_MCP_ENDPOINT repository secret is required"; exit 1)
       - name: Extract Real PR Schema Diff
         run: |
           python scripts/extract_pr_diff.py \

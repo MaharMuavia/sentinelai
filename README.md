@@ -96,6 +96,12 @@ server separately requires `TOOLS_IS_MUTATION_ENABLED=true` for mutation tools.
 Set `SENTINEL_AUTH_TOKEN` before enabling authenticated approval or mutation
 endpoints. `GITHUB_REPOSITORY` and `GITHUB_TOKEN` are optional.
 
+For the GitHub Actions firewall, add repository secrets named
+`DATAHUB_GMS_URL`, `DATAHUB_GMS_TOKEN`, and `DATAHUB_MCP_ENDPOINT`. The MCP
+endpoint must be reachable from GitHub-hosted runners; `localhost` and a
+private Docker-network address only work for the local demo. The workflow
+fails at a configuration preflight when these secrets are absent.
+
 ## Reproducible demo
 
 The mapped demo source files are in
