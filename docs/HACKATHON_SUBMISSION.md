@@ -67,7 +67,8 @@ Sentinel AI operates **before merge**. When a developer opens a GitHub PR modify
 - [ ] Verify GitHub repository is public: `https://github.com/MaharMuavia/sentinelai`
 - [ ] Configure a real test PR and GitHub token before claiming that a PR comment was posted live.
 - [ ] Add the local DataHub service-account token as the `DATAHUB_GMS_TOKEN`
-repository secret, register the Ubuntu self-hosted runner, and keep the local
+repository secret (or use the existing `SENTINEL` secret accepted by the
+workflow), register the Ubuntu self-hosted runner, and keep the local
 DataHub/MCP Compose services running before treating the GitHub firewall check
 as live-verified.
 - [ ] Confirm Apache 2.0 license is visible in root `LICENSE`.
