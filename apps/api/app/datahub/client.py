@@ -179,14 +179,14 @@ class DataHubClient:
                     entity_urn = entity.get("urn") or node.get("urn")
                     if not entity_urn:
                         continue
-                    e_type = entity.get("type") or node.get("type") or "DATASET"
+                    e_type = entity.get("type") or node.get("type")
                     name = entity.get("name") or node.get("name") or self._urn_name(entity_urn)
                     parsed.append({
                         "entity": entity_urn,
                         "type": e_type,
                         "name": name,
                         "platform": entity.get("platform") or node.get("platform"),
-                        "depth": node.get("degree", node.get("hops", 1)),
+                        "depth": node.get("degree", node.get("hops")),
                         "source_mode": IntegrationMode.LIVE_DATAHUB.value,
                         "source_tool": "get_lineage",
                         "source_reference": res.provenance.source_reference,
@@ -414,7 +414,7 @@ class DataHubClient:
                 continue
             owners.append(EntityOwner(
                 owner_urn=owner_urn,
-                name=o.get("name") or owner_properties.get("displayName") or owner_urn.split(":")[-1],
+                name=o.get("name") or owner_properties.get("displayName"),
                 email=o.get("email") or owner_properties.get("email"),
                 type=o.get("type", "TECHNICAL_OWNER")
             ))
@@ -457,8 +457,8 @@ class DataHubClient:
             raise ValueError("list_schema_fields response did not contain valid fields")
         return DatasetMetadata(
             urn=urn,
-            name=urn.split(",")[-2] if "," in urn else urn,
-            platform="snowflake",
+            name=self._urn_name(urn),
+            platform=None,
             description=None,
             fields=fields,
             schema_verified=bool(fields),

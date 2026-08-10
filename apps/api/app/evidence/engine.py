@@ -44,11 +44,11 @@ class AssetImpact(BaseModel):
     asset_urn: str
     name: str
     platform: Optional[str] = None
-    asset_type: str
+    asset_type: Optional[str] = None
     classification: ImpactClassification
     owners: List[str] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list)
-    hop_count: int = 1
+    hop_count: Optional[int] = None
     evidence: List[EvidenceItem] = Field(default_factory=list)
     provenance: Optional[DataHubProvenance] = None
 
@@ -70,7 +70,7 @@ class EvidenceGraphEdge(BaseModel):
     target: str
     lineage_type: str
     field_mapping: Optional[str] = None
-    hop_count: int = 1
+    hop_count: Optional[int] = None
     evidence_source: str
     provenance: Optional[DataHubProvenance] = None
 
@@ -153,6 +153,9 @@ class ImpactEvidenceEngine:
                 provenance_sources.add(f"{node_prov.source_mode.value}:{node_prov.source_tool}")
 
             evidence_items: List[EvidenceItem] = []
+            depth = node_info.get("depth")
+            depth_label = str(depth) if depth is not None else "unknown"
+            hop_count = depth if isinstance(depth, int) and not isinstance(depth, bool) else None
             field_mappings: List[str] = []
             column_match = False
             query_match = False
@@ -212,14 +215,14 @@ class ImpactEvidenceEngine:
 
             classification = (
                 ImpactClassification.CONFIRMED_IMPACT if column_match or query_match
-                else ImpactClassification.POTENTIAL_IMPACT if node_info.get("depth", 1) <= 1
+                else ImpactClassification.POTENTIAL_IMPACT if isinstance(depth, (int, float)) and depth <= 1
                 else ImpactClassification.UNLIKELY_IMPACT
             )
             if not column_match and not query_match:
                 evidence_items.append(EvidenceItem(
                     id=f"ev_table_{len(evidence_items) + 1}",
                     type=EvidenceType.TABLE_LINEAGE,
-                    description=f"Downstream table lineage returned at hop {node_info.get('depth', 1)}; field use was not verified",
+                    description=f"Downstream table lineage returned at hop {depth_label}; field use was not verified",
                     provenance=lineage_prov,
                 ))
             classified_assets.append(AssetImpact(
@@ -230,7 +233,7 @@ class ImpactEvidenceEngine:
                 classification=classification,
                 owners=[o.name for o in target_meta.owners if o.name] if target_meta else [],
                 tags=target_meta.tags if target_meta else [],
-                hop_count=int(node_info.get("depth", 1)),
+                hop_count=hop_count,
                 evidence=evidence_items,
                 provenance=target_prov,
             ))
@@ -250,7 +253,7 @@ class ImpactEvidenceEngine:
                 target=target_urn,
                 lineage_type="FIELD_LEVEL" if column_match else "TABLE_LEVEL",
                 field_mapping=", ".join(sorted(set(field_mappings))) or None,
-                hop_count=int(node_info.get("depth", 1)),
+                hop_count=hop_count,
                 evidence_source="get_lineage",
                 provenance=lineage_prov,
             ))

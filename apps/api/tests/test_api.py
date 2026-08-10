@@ -1,9 +1,12 @@
 import pytest
 from fastapi.testclient import TestClient
+from unittest.mock import AsyncMock
 from app.main import app
 from app.config import settings
 from app.db.database import SessionLocal
 from app.db.models import InvestigationDB
+from app.datahub.client import DataHubClient
+from app.datahub.mcp_client import DataHubMCPClient, MCPConnectionResult
 
 client = TestClient(app)
 
@@ -20,7 +23,14 @@ def test_readiness_check_verifies_database():
     assert response.json() == {"status": "ready", "database": "connected"}
 
 
-def test_integrations_status():
+def test_integrations_status(monkeypatch):
+    monkeypatch.setenv("SENTINEL_DATA_MODE", "fixture")
+    monkeypatch.setattr(DataHubClient, "check_connection", AsyncMock(return_value=False))
+    monkeypatch.setattr(
+        DataHubMCPClient,
+        "discover_tools",
+        AsyncMock(return_value=MCPConnectionResult(connected=False)),
+    )
     response = client.get("/api/integrations/status")
     assert response.status_code == 200
     data = response.json()
@@ -30,7 +40,8 @@ def test_integrations_status():
     assert data["datahub"]["mode"] in ("LIVE_DATAHUB", "DEMO_FIXTURE", "DATAHUB_UNAVAILABLE")
 
 
-def test_analyze_change_api():
+def test_analyze_change_api(monkeypatch):
+    monkeypatch.setenv("SENTINEL_DATA_MODE", "fixture")
     payload = {
         "before_schema": {
             "dataset": {"urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)", "name": "raw_customers"},
@@ -45,7 +56,7 @@ def test_analyze_change_api():
                 {"name": "customer_id", "type": "STRING", "nullable": False}
             ]
         },
-        "pr_url": "https://github.com/MaharMuavia/sentinelai/pull/42"
+        "pr_url": "https://github.com/MaharMuavia/sentinelai/pull/1"
     }
 
     response = client.post("/api/changes/analyze", json=payload)
@@ -58,6 +69,7 @@ def test_analyze_change_api():
 
 
 def test_analysis_payload_cannot_self_approve(monkeypatch):
+    monkeypatch.setenv("SENTINEL_DATA_MODE", "fixture")
     payload = {
         "before_schema": {
             "dataset": {"urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,approval_test,PROD)", "name": "approval_test"},

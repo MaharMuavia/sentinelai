@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import AsyncMock
 from app.datahub.client import DataHubClient, IntegrationMode, DatasetMetadata
 from app.datahub.mcp_client import EvidenceProvenance, MCPToolResult
+from app.config import settings
 
 
 @pytest.mark.asyncio
@@ -29,7 +30,11 @@ async def test_get_dataset_provenance(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_get_dataset_unavailable_returns_none():
+async def test_get_dataset_unavailable_returns_none(monkeypatch):
+    monkeypatch.delenv("DATAHUB_MCP_COMMAND", raising=False)
+    monkeypatch.delenv("DATAHUB_MCP_ARGS", raising=False)
+    monkeypatch.setattr(settings, "DATAHUB_MCP_COMMAND", None)
+    monkeypatch.setattr(settings, "DATAHUB_MCP_ARGS", [])
     client = DataHubClient()
     # When GMS is offline and fallback disabled, MUST return None (no silent fake data creation)
     if not await client.check_connection():
@@ -72,3 +77,14 @@ async def test_get_dataset_queries_parses_datahub_query_properties(monkeypatch):
     assert queries[0].query_id == "urn:li:query:sentinel_demo_customer_email_usage"
     assert queries[0].query_text == "SELECT customer_id, email FROM raw_customers"
     assert queries[0].user == "urn:li:corpuser:sentinel_demo"
+
+
+def test_schema_only_live_response_does_not_invent_platform():
+    client = DataHubClient()
+    dataset = client._parse_mcp_fields_result(
+        "urn:li:dataset:(urn:li:dataPlatform:unknown,raw_customers,PROD)",
+        {"fields": [{"fieldPath": "email", "nativeDataType": "STRING"}]},
+    )
+
+    assert dataset.platform is None
+    assert dataset.name == "raw_customers"

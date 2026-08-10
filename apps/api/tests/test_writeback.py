@@ -55,6 +55,20 @@ async def test_writeback_awaiting_and_dry_run_are_not_success(monkeypatch):
 async def test_writeback_returns_failure_when_gms_unreachable(monkeypatch):
     monkeypatch.setenv("DATAHUB_MUTATION_ENABLED", "true")
     wb = DataHubWritebackEngine(gms_url="http://localhost:59999", token="")
+
+    async def unavailable_save_document(**kwargs):
+        return MCPToolResult(
+            tool_name="save_document",
+            success=False,
+            error_message="MCP endpoint unavailable",
+            provenance=EvidenceProvenance(
+                source_mode=IntegrationMode.DATAHUB_UNAVAILABLE,
+                source_tool="save_document",
+                verified=False,
+            ),
+        )
+
+    monkeypatch.setattr(wb.mcp_client, "save_document", unavailable_save_document)
     
     # Must return status=FAILED and success=False when DataHub GMS is unreachable
     res = await wb.writeback_investigation(

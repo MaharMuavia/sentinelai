@@ -51,7 +51,7 @@ Sentinel AI operates **before merge**. When a developer opens a GitHub PR modify
 ### 2. Technical Execution
 - **Implementation**: FastAPI backend, Next.js 16 frontend, SQLGlot AST engine, PostgreSQL/SQLAlchemy persistence, OIDC-scoped mutation authorization, and a pinned long-lived DataHub MCP HTTP sidecar.
 - **Code Evidence**: Real git commit PR diff extraction (`extract_pr_diff.py`), deterministic CI exit code enforcement (`run_ci_check.py`), semantic remediation safety checks (`remediation/engine.py`), and non-interactive ESLint setup.
-- **Testing**: The final local run passed 47 backend contract/regression tests, ESLint, the Next.js production build, PostgreSQL readiness/persistence, MCP sidecar health, and container startup. Live GitHub checks remain reported separately as PASS, FAIL, or UNVERIFIED.
+- **Testing**: The final local run passed 50 backend contract/regression tests, ESLint, the Next.js production build, PostgreSQL readiness/persistence, MCP sidecar health, and container startup. Live GitHub checks remain reported separately as PASS, FAIL, or UNVERIFIED.
 
 ### 3. Originality
 - **Implementation**: Moves beyond passive metadata browsing by turning DataHub context into an **active pre-merge change firewall**.

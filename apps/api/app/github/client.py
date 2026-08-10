@@ -57,7 +57,7 @@ class GitHubClient:
         if not pr_url:
             return None, None, "PR URL is required."
 
-        pattern = r"^https:\/\/github\.com\/([a-zA-Z0-9_\-\.\/]+)\/pull\/(\d+)\/?"
+        pattern = r"^https:\/\/github\.com\/([a-zA-Z0-9_\-\.]+\/[a-zA-Z0-9_\-\.]+)\/pull\/(\d+)\/?$"
         match = re.match(pattern, pr_url.strip())
         if not match:
             return None, None, f"Invalid GitHub PR URL format '{pr_url}'. Expected 'https://github.com/<owner>/<repo>/pull/<number>'."

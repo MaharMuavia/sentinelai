@@ -68,7 +68,7 @@ export interface ImpactGraphData {
     id: string;
     label: string;
     type: string;
-    platform: string;
+    platform?: string;
     classification: string;
     owners: string[];
     tags: string[];
@@ -78,7 +78,7 @@ export interface ImpactGraphData {
     target: string;
     lineage_type: string;
     field_mapping?: string;
-    hop_count: number;
+    hop_count?: number;
   }>;
 }
 

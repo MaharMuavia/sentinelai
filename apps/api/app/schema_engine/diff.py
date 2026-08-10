@@ -22,7 +22,7 @@ class SchemaField(BaseModel):
 
 class DatasetIdentifier(BaseModel):
     urn: str
-    platform: Optional[str] = "snowflake"
+    platform: Optional[str] = None
     name: str
     env: str = "PROD"
 

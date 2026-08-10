@@ -2,10 +2,13 @@ import pytest
 import os
 from app.datahub.mcp_client import DataHubMCPClient, IntegrationMode
 from app.datahub.client import DataHubClient
+from app.config import settings
 
 
 @pytest.mark.asyncio
-async def test_mcp_client_rpc_payload():
+async def test_mcp_client_rpc_payload(monkeypatch):
+    monkeypatch.delenv("DATAHUB_MCP_COMMAND", raising=False)
+    monkeypatch.delenv("DATAHUB_MCP_ARGS", raising=False)
     client = DataHubMCPClient(gms_url="http://localhost:59999")
     
     # Connection check when GMS offline must return False
@@ -21,6 +24,11 @@ async def test_mcp_client_rpc_payload():
 @pytest.mark.asyncio
 async def test_datahub_client_no_silent_fallback_in_live_mode(monkeypatch):
     monkeypatch.setenv("SENTINEL_DATA_MODE", "live")
+    monkeypatch.delenv("DATAHUB_MCP_COMMAND", raising=False)
+    monkeypatch.delenv("DATAHUB_MCP_ARGS", raising=False)
+    monkeypatch.setattr(settings, "DATAHUB_MCP_ENDPOINT", "http://127.0.0.1:1/mcp")
+    monkeypatch.setattr(settings, "DATAHUB_MCP_COMMAND", None)
+    monkeypatch.setattr(settings, "DATAHUB_MCP_ARGS", [])
     client = DataHubClient(gms_url="http://localhost:59999")
 
     # In live mode when GMS offline, MUST return DATAHUB_UNAVAILABLE, NOT DEMO_FIXTURE

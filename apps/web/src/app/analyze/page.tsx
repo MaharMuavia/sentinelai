@@ -221,7 +221,7 @@ export default function AnalyzePage() {
           type="text"
           value={prUrl}
           onChange={(e) => setPrUrl(e.target.value)}
-          placeholder="https://github.com/org/repo/pull/42"
+                placeholder="https://github.com/owner/repository/pull/123"
           className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs font-mono text-slate-900 focus:outline-none focus:border-blue-500"
         />
       </div>
