@@ -107,7 +107,6 @@ def seed_demo_graph():
                 lastModified=audit_stamp,
                 name="Sentinel canonical email-impact query",
                 description="Explicitly seeded query for the Sentinel hackathon acceptance dataset",
-                origin="sentinel-demo-seed",
             ),
         ),
         MetadataChangeProposalWrapper(

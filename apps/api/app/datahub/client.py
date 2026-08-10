@@ -229,18 +229,27 @@ class DataHubClient:
                 queries_raw = self._items(res.content, "queries", "results", "elements")
                 parsed = []
                 for q in queries_raw:
-                    stmt = q.get("query_text") or q.get("query") or q.get("statement")
+                    properties = q.get("properties") if isinstance(q.get("properties"), dict) else {}
+                    stmt = (
+                        q.get("query_text")
+                        or q.get("query")
+                        or q.get("statement")
+                        or properties.get("statement")
+                    )
                     if isinstance(stmt, dict):
                         stmt = stmt.get("value") or stmt.get("text") or stmt.get("statement")
                         if isinstance(stmt, dict):
                             stmt = stmt.get("value") or stmt.get("text")
                     if stmt and (not field_name or field_name.lower() in stmt.lower()):
                         # Honest storage: do NOT synthesize fake IDs or user timestamps if absent
+                        last_modified = properties.get("lastModified")
+                        if not isinstance(last_modified, dict):
+                            last_modified = {}
                         parsed.append(QueryReference(
-                            query_id=q.get("query_id"),
+                            query_id=q.get("query_id") or q.get("urn"),
                             query_text=stmt,
-                            last_executed=q.get("last_executed"),
-                            user=q.get("user"),
+                            last_executed=q.get("last_executed") or properties.get("lastExecuted"),
+                            user=q.get("user") or last_modified.get("actor"),
                             provenance=DataHubProvenance(
                                 source_mode=IntegrationMode.LIVE_DATAHUB,
                                 source_tool="get_dataset_queries",
