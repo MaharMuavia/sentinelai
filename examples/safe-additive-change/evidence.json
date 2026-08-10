@@ -1,11 +1,11 @@
 {
   "dataset_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
   "dataset_name": "raw_customers",
-  "integration_mode": "DATAHUB_UNAVAILABLE",
+  "integration_mode": "DEMO_FIXTURE",
   "changes": {
     "dataset_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
     "source": "github_pr",
-    "timestamp": "2026-08-08T10:50:33.241197+00:00",
+    "timestamp": "2026-08-08T11:59:19.658543+00:00",
     "changes": [
       {
         "field": "signup_source",
@@ -21,7 +21,212 @@
       }
     ]
   },
-  "classified_assets": [],
+  "classified_assets": [
+    {
+      "asset_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
+      "name": "customer_360",
+      "platform": "dbt",
+      "asset_type": "DATASET",
+      "classification": "POTENTIAL_IMPACT",
+      "owners": [
+        "Alex Rodriguez"
+      ],
+      "tags": [
+        "Tier_1",
+        "Production_Model"
+      ],
+      "hop_count": 1,
+      "evidence": [
+        {
+          "id": "ev_table_1",
+          "type": "TABLE_LINEAGE",
+          "source_field": null,
+          "target_field": null,
+          "query_reference": null,
+          "description": "Downstream table lineage returned at hop 1; field use was not verified",
+          "provenance": {
+            "source_mode": "DEMO_FIXTURE",
+            "source_tool": "sentinel_demo_lineage_graph",
+            "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
+            "field_path": null,
+            "retrieved_at": "2026-08-08T11:59:19.658543+00:00",
+            "source_reference": null
+          }
+        }
+      ],
+      "provenance": {
+        "source_mode": "DEMO_FIXTURE",
+        "source_tool": "sentinel_demo_fixture_db",
+        "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
+        "field_path": null,
+        "retrieved_at": "2026-08-08T11:59:19.658543+00:00",
+        "source_reference": "demo_fixtures/customer_360.json"
+      }
+    },
+    {
+      "asset_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,marketing_dashboard,PROD)",
+      "name": "marketing_dashboard",
+      "platform": "looker",
+      "asset_type": "DASHBOARD",
+      "classification": "UNLIKELY_IMPACT",
+      "owners": [
+        "Emily Watson"
+      ],
+      "tags": [
+        "Executive_Tier",
+        "Critical_Dashboard"
+      ],
+      "hop_count": 2,
+      "evidence": [
+        {
+          "id": "ev_table_1",
+          "type": "TABLE_LINEAGE",
+          "source_field": null,
+          "target_field": null,
+          "query_reference": null,
+          "description": "Downstream table lineage returned at hop 2; field use was not verified",
+          "provenance": {
+            "source_mode": "DEMO_FIXTURE",
+            "source_tool": "sentinel_demo_lineage_graph",
+            "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,marketing_dashboard,PROD)",
+            "field_path": null,
+            "retrieved_at": "2026-08-08T11:59:19.658543+00:00",
+            "source_reference": null
+          }
+        }
+      ],
+      "provenance": {
+        "source_mode": "DEMO_FIXTURE",
+        "source_tool": "sentinel_demo_fixture_db",
+        "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,marketing_dashboard,PROD)",
+        "field_path": null,
+        "retrieved_at": "2026-08-08T11:59:19.658543+00:00",
+        "source_reference": null
+      }
+    },
+    {
+      "asset_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,churn_features,PROD)",
+      "name": "churn_features",
+      "platform": "dbt",
+      "asset_type": "DATASET",
+      "classification": "UNLIKELY_IMPACT",
+      "owners": [
+        "David Kim"
+      ],
+      "tags": [
+        "ML_Feature_Store",
+        "Tier_1"
+      ],
+      "hop_count": 2,
+      "evidence": [
+        {
+          "id": "ev_table_1",
+          "type": "TABLE_LINEAGE",
+          "source_field": null,
+          "target_field": null,
+          "query_reference": null,
+          "description": "Downstream table lineage returned at hop 2; field use was not verified",
+          "provenance": {
+            "source_mode": "DEMO_FIXTURE",
+            "source_tool": "sentinel_demo_lineage_graph",
+            "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,churn_features,PROD)",
+            "field_path": null,
+            "retrieved_at": "2026-08-08T11:59:19.658543+00:00",
+            "source_reference": null
+          }
+        }
+      ],
+      "provenance": {
+        "source_mode": "DEMO_FIXTURE",
+        "source_tool": "sentinel_demo_fixture_db",
+        "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,churn_features,PROD)",
+        "field_path": null,
+        "retrieved_at": "2026-08-08T11:59:19.658543+00:00",
+        "source_reference": null
+      }
+    },
+    {
+      "asset_urn": "urn:li:dataset:(urn:li:dataPlatform:mlflow,churn_model,PROD)",
+      "name": "churn_model",
+      "platform": "mlflow",
+      "asset_type": "ML_MODEL",
+      "classification": "UNLIKELY_IMPACT",
+      "owners": [
+        "David Kim"
+      ],
+      "tags": [
+        "Production_ML",
+        "Critical_Model"
+      ],
+      "hop_count": 3,
+      "evidence": [
+        {
+          "id": "ev_table_1",
+          "type": "TABLE_LINEAGE",
+          "source_field": null,
+          "target_field": null,
+          "query_reference": null,
+          "description": "Downstream table lineage returned at hop 3; field use was not verified",
+          "provenance": {
+            "source_mode": "DEMO_FIXTURE",
+            "source_tool": "sentinel_demo_lineage_graph",
+            "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:mlflow,churn_model,PROD)",
+            "field_path": null,
+            "retrieved_at": "2026-08-08T11:59:19.658543+00:00",
+            "source_reference": null
+          }
+        }
+      ],
+      "provenance": {
+        "source_mode": "DEMO_FIXTURE",
+        "source_tool": "sentinel_demo_fixture_db",
+        "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:mlflow,churn_model,PROD)",
+        "field_path": null,
+        "retrieved_at": "2026-08-08T11:59:19.658543+00:00",
+        "source_reference": null
+      }
+    },
+    {
+      "asset_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,billing_dashboard,PROD)",
+      "name": "billing_dashboard",
+      "platform": "looker",
+      "asset_type": "DASHBOARD",
+      "classification": "UNLIKELY_IMPACT",
+      "owners": [
+        "Finance Team"
+      ],
+      "tags": [
+        "Finance"
+      ],
+      "hop_count": 2,
+      "evidence": [
+        {
+          "id": "ev_table_1",
+          "type": "TABLE_LINEAGE",
+          "source_field": null,
+          "target_field": null,
+          "query_reference": null,
+          "description": "Downstream table lineage returned at hop 2; field use was not verified",
+          "provenance": {
+            "source_mode": "DEMO_FIXTURE",
+            "source_tool": "sentinel_demo_lineage_graph",
+            "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,billing_dashboard,PROD)",
+            "field_path": null,
+            "retrieved_at": "2026-08-08T11:59:19.658543+00:00",
+            "source_reference": null
+          }
+        }
+      ],
+      "provenance": {
+        "source_mode": "DEMO_FIXTURE",
+        "source_tool": "sentinel_demo_fixture_db",
+        "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,billing_dashboard,PROD)",
+        "field_path": null,
+        "retrieved_at": "2026-08-08T11:59:19.658543+00:00",
+        "source_reference": null
+      }
+    }
+  ],
   "graph": {
     "nodes": [
       {
@@ -30,25 +235,231 @@
         "type": "CHANGED_DATASET",
         "platform": "snowflake",
         "classification": "CONFIRMED_IMPACT",
-        "owners": [],
-        "tags": [],
-        "is_demo_fixture": false,
+        "owners": [
+          "Sarah Chen"
+        ],
+        "tags": [
+          "PII",
+          "Core_Entity",
+          "Tier_1"
+        ],
+        "is_demo_fixture": true,
         "provenance": {
-          "source_mode": "DATAHUB_UNAVAILABLE",
-          "source_tool": "sentinel_evidence_engine",
+          "source_mode": "DEMO_FIXTURE",
+          "source_tool": "sentinel_demo_fixture_db",
           "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
           "field_path": null,
-          "retrieved_at": "2026-08-08T10:50:33.241197+00:00",
+          "retrieved_at": "2026-08-08T11:59:19.658543+00:00",
+          "source_reference": "demo_fixtures/raw_customers.json"
+        }
+      },
+      {
+        "id": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
+        "label": "customer_360",
+        "type": "POTENTIAL_IMPACT",
+        "platform": "dbt",
+        "classification": "POTENTIAL_IMPACT",
+        "owners": [
+          "Alex Rodriguez"
+        ],
+        "tags": [
+          "Tier_1",
+          "Production_Model"
+        ],
+        "is_demo_fixture": true,
+        "provenance": {
+          "source_mode": "DEMO_FIXTURE",
+          "source_tool": "sentinel_demo_fixture_db",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
+          "field_path": null,
+          "retrieved_at": "2026-08-08T11:59:19.658543+00:00",
+          "source_reference": "demo_fixtures/customer_360.json"
+        }
+      },
+      {
+        "id": "urn:li:dataset:(urn:li:dataPlatform:looker,marketing_dashboard,PROD)",
+        "label": "marketing_dashboard",
+        "type": "POTENTIAL_IMPACT",
+        "platform": "looker",
+        "classification": "UNLIKELY_IMPACT",
+        "owners": [
+          "Emily Watson"
+        ],
+        "tags": [
+          "Executive_Tier",
+          "Critical_Dashboard"
+        ],
+        "is_demo_fixture": true,
+        "provenance": {
+          "source_mode": "DEMO_FIXTURE",
+          "source_tool": "sentinel_demo_fixture_db",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,marketing_dashboard,PROD)",
+          "field_path": null,
+          "retrieved_at": "2026-08-08T11:59:19.658543+00:00",
+          "source_reference": null
+        }
+      },
+      {
+        "id": "urn:li:dataset:(urn:li:dataPlatform:dbt,churn_features,PROD)",
+        "label": "churn_features",
+        "type": "POTENTIAL_IMPACT",
+        "platform": "dbt",
+        "classification": "UNLIKELY_IMPACT",
+        "owners": [
+          "David Kim"
+        ],
+        "tags": [
+          "ML_Feature_Store",
+          "Tier_1"
+        ],
+        "is_demo_fixture": true,
+        "provenance": {
+          "source_mode": "DEMO_FIXTURE",
+          "source_tool": "sentinel_demo_fixture_db",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,churn_features,PROD)",
+          "field_path": null,
+          "retrieved_at": "2026-08-08T11:59:19.658543+00:00",
+          "source_reference": null
+        }
+      },
+      {
+        "id": "urn:li:dataset:(urn:li:dataPlatform:mlflow,churn_model,PROD)",
+        "label": "churn_model",
+        "type": "POTENTIAL_IMPACT",
+        "platform": "mlflow",
+        "classification": "UNLIKELY_IMPACT",
+        "owners": [
+          "David Kim"
+        ],
+        "tags": [
+          "Production_ML",
+          "Critical_Model"
+        ],
+        "is_demo_fixture": true,
+        "provenance": {
+          "source_mode": "DEMO_FIXTURE",
+          "source_tool": "sentinel_demo_fixture_db",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:mlflow,churn_model,PROD)",
+          "field_path": null,
+          "retrieved_at": "2026-08-08T11:59:19.658543+00:00",
+          "source_reference": null
+        }
+      },
+      {
+        "id": "urn:li:dataset:(urn:li:dataPlatform:looker,billing_dashboard,PROD)",
+        "label": "billing_dashboard",
+        "type": "POTENTIAL_IMPACT",
+        "platform": "looker",
+        "classification": "UNLIKELY_IMPACT",
+        "owners": [
+          "Finance Team"
+        ],
+        "tags": [
+          "Finance"
+        ],
+        "is_demo_fixture": true,
+        "provenance": {
+          "source_mode": "DEMO_FIXTURE",
+          "source_tool": "sentinel_demo_fixture_db",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,billing_dashboard,PROD)",
+          "field_path": null,
+          "retrieved_at": "2026-08-08T11:59:19.658543+00:00",
           "source_reference": null
         }
       }
     ],
-    "edges": []
+    "edges": [
+      {
+        "source": "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
+        "target": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
+        "lineage_type": "TABLE_LEVEL",
+        "field_mapping": null,
+        "hop_count": 1,
+        "evidence_source": "get_lineage",
+        "provenance": {
+          "source_mode": "DEMO_FIXTURE",
+          "source_tool": "sentinel_demo_lineage_graph",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
+          "field_path": null,
+          "retrieved_at": "2026-08-08T11:59:19.658543+00:00",
+          "source_reference": null
+        }
+      },
+      {
+        "source": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
+        "target": "urn:li:dataset:(urn:li:dataPlatform:looker,marketing_dashboard,PROD)",
+        "lineage_type": "TABLE_LEVEL",
+        "field_mapping": null,
+        "hop_count": 2,
+        "evidence_source": "get_lineage",
+        "provenance": {
+          "source_mode": "DEMO_FIXTURE",
+          "source_tool": "sentinel_demo_lineage_graph",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,marketing_dashboard,PROD)",
+          "field_path": null,
+          "retrieved_at": "2026-08-08T11:59:19.658543+00:00",
+          "source_reference": null
+        }
+      },
+      {
+        "source": "urn:li:dataset:(urn:li:dataPlatform:dbt,customer_360,PROD)",
+        "target": "urn:li:dataset:(urn:li:dataPlatform:dbt,churn_features,PROD)",
+        "lineage_type": "TABLE_LEVEL",
+        "field_mapping": null,
+        "hop_count": 2,
+        "evidence_source": "get_lineage",
+        "provenance": {
+          "source_mode": "DEMO_FIXTURE",
+          "source_tool": "sentinel_demo_lineage_graph",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,churn_features,PROD)",
+          "field_path": null,
+          "retrieved_at": "2026-08-08T11:59:19.658543+00:00",
+          "source_reference": null
+        }
+      },
+      {
+        "source": "urn:li:dataset:(urn:li:dataPlatform:dbt,churn_features,PROD)",
+        "target": "urn:li:dataset:(urn:li:dataPlatform:mlflow,churn_model,PROD)",
+        "lineage_type": "TABLE_LEVEL",
+        "field_mapping": null,
+        "hop_count": 3,
+        "evidence_source": "get_lineage",
+        "provenance": {
+          "source_mode": "DEMO_FIXTURE",
+          "source_tool": "sentinel_demo_lineage_graph",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:mlflow,churn_model,PROD)",
+          "field_path": null,
+          "retrieved_at": "2026-08-08T11:59:19.658543+00:00",
+          "source_reference": null
+        }
+      },
+      {
+        "source": "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
+        "target": "urn:li:dataset:(urn:li:dataPlatform:looker,billing_dashboard,PROD)",
+        "lineage_type": "TABLE_LEVEL",
+        "field_mapping": null,
+        "hop_count": 2,
+        "evidence_source": "get_lineage",
+        "provenance": {
+          "source_mode": "DEMO_FIXTURE",
+          "source_tool": "sentinel_demo_lineage_graph",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:looker,billing_dashboard,PROD)",
+          "field_path": null,
+          "retrieved_at": "2026-08-08T11:59:19.658543+00:00",
+          "source_reference": null
+        }
+      }
+    ]
   },
   "confirmed_consumers_count": 0,
-  "potential_consumers_count": 0,
-  "has_sufficient_evidence": false,
+  "potential_consumers_count": 1,
+  "has_sufficient_evidence": true,
+  "schema_verified": true,
+  "column_lineage_available": false,
+  "query_usage_available": false,
+  "ownership_assigned": true,
+  "exact_lineage_path_verified": false,
   "evidence_provenance_summary": [
-    "DATAHUB_UNAVAILABLE:sentinel_evidence_engine"
+    "DEMO_FIXTURE:sentinel_demo_fixture_db"
   ]
 }

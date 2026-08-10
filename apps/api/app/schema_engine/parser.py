@@ -1,5 +1,5 @@
 import sqlglot
-from sqlglot.expressions import ColumnDef, Drop, Alter, Create, RenameColumn
+from sqlglot.expressions import ColumnDef, Drop, Alter, Create, RenameColumn, NotNullColumnConstraint
 from typing import Tuple, List, Optional, Dict, Any
 from pydantic import BaseModel
 from app.schema_engine.diff import SchemaSnapshot, DatasetIdentifier, SchemaField
@@ -23,6 +23,17 @@ class SchemaParserEngine:
     """
 
     @staticmethod
+    def _column_metadata(col: ColumnDef) -> tuple[Optional[str], bool]:
+        col_kind = col.args.get("kind")
+        type_str = col_kind.sql(dialect="snowflake").upper() if col_kind else None
+        constraints = col.args.get("constraints") or []
+        nullable = not any(
+            isinstance(constraint.args.get("kind"), NotNullColumnConstraint)
+            for constraint in constraints
+        )
+        return type_str, nullable
+
+    @staticmethod
     def parse_create_table(sql: str, dataset_name: str, dataset_urn: str) -> SchemaParseResult:
         """Parse CREATE TABLE statement into SchemaSnapshot."""
         if not sql or not sql.strip():
@@ -38,9 +49,8 @@ class SchemaParserEngine:
                 fields = []
                 for col in stmt.find_all(ColumnDef):
                     col_name = col.name
-                    col_kind = col.args.get("kind")
-                    type_str = col_kind.name.upper() if col_kind else "STRING"
-                    fields.append(SchemaField(name=col_name, type=type_str, nullable=True))
+                    type_str, nullable = SchemaParserEngine._column_metadata(col)
+                    fields.append(SchemaField(name=col_name, type=type_str, nullable=nullable))
                 snap = SchemaSnapshot(dataset=dataset_id, fields=fields)
                 return SchemaParseResult(success=True, snapshot=snap, after_snapshot=snap)
         except Exception as e:
@@ -84,12 +94,11 @@ class SchemaParserEngine:
             fields = []
             for col in stmt.find_all(ColumnDef):
                 col_name = col.name
-                col_kind = col.args.get("kind")
-                type_str = col_kind.name.upper() if col_kind else "STRING"
+                type_str, nullable = SchemaParserEngine._column_metadata(col)
                 fields.append(SchemaField(
                     name=col_name,
                     type=type_str,
-                    nullable=True
+                    nullable=nullable
                 ))
 
             after_snap = SchemaSnapshot(dataset=dataset_id, fields=fields)
@@ -118,13 +127,19 @@ class SchemaParserEngine:
             for drop in drops:
                 if drop.args.get("kind") == "COLUMN":
                     dropped_col = drop.this.name.lower()
+                    if not any(f.name.lower() == dropped_col for f in after_fields):
+                        return SchemaParseResult(success=False, error=f"Cannot drop missing column '{drop.this.name}'")
                     after_fields = [f for f in after_fields if f.name.lower() != dropped_col]
 
             # Check for RENAME COLUMN
             renames = list(stmt.find_all(RenameColumn))
             for r in renames:
                 old_col = r.this.name
-                new_col = r.to.name
+                new_col = r.args["to"].name
+                if not any(f.name.lower() == old_col.lower() for f in after_fields):
+                    return SchemaParseResult(success=False, error=f"Cannot rename missing column '{old_col}'")
+                if any(f.name.lower() == new_col.lower() for f in after_fields):
+                    return SchemaParseResult(success=False, error=f"Cannot rename '{old_col}' to existing column '{new_col}'")
                 explicit_renames[old_col] = new_col
 
                 new_fields = []
@@ -138,10 +153,9 @@ class SchemaParserEngine:
             # Check for ADD COLUMN
             for col in stmt.find_all(ColumnDef):
                 added_col = col.name
-                col_kind = col.args.get("kind")
-                added_type = col_kind.name.upper() if col_kind else "STRING"
+                added_type, added_nullable = SchemaParserEngine._column_metadata(col)
                 if not any(f.name.lower() == added_col.lower() for f in after_fields):
-                    after_fields.append(SchemaField(name=added_col, type=added_type, nullable=True))
+                    after_fields.append(SchemaField(name=added_col, type=added_type, nullable=added_nullable))
 
             after_snap = SchemaSnapshot(dataset=dataset_id, fields=after_fields)
             return SchemaParseResult(

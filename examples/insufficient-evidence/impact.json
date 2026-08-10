@@ -1,0 +1,7 @@
+{
+  "verdict": "INSUFFICIENT_EVIDENCE",
+  "severity": "HIGH",
+  "evidence_trust": "DATAHUB UNAVAILABLE",
+  "evidence_completeness": 0.0,
+  "note": "Fixture-generated expected outcome; not live verified."
+}

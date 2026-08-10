@@ -72,14 +72,15 @@ class LLMReasoningEngine:
             rec_action = "Verify DataHub connectivity or supply missing lineage metadata before merging PR."
             remediation_strat = "Require manual engineering review and verify downstream models manually."
         else:
+            evidence_word = "verified" if bundle.integration_mode.value == "LIVE_DATAHUB" else "observed in the explicit demo scenario"
             exec_summary = (
                 f"Proposed change to dataset '{dataset_name}' modifies {len(bundle.changes.changes)} field(s), "
-                f"including breaking change(s) to {field_names}. Sentinel verified {bundle.confirmed_consumers_count} "
+                f"including breaking change(s) to {field_names}. Sentinel {evidence_word} {bundle.confirmed_consumers_count} "
                 f"confirmed downstream consumer(s) across DataHub lineage graph ({bundle.integration_mode.value})."
             )
             why_matters = (
                 f"Altering column(s) {field_names} risks breaking downstream analytical models and dashboards "
-                f"that reference this field. Impacted verified systems include Executive Dashboards and ML Feature Stores."
+                f"that reference this field. Impacted {evidence_word} systems include Executive Dashboards and ML Feature Stores."
             )
             rec_action = (
                 f"Review affected downstream dbt models and dashboard field references before merging PR. "

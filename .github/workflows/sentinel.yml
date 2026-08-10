@@ -5,10 +5,8 @@ on:
     branches:
       - main
     paths:
-      - 'models/**'
-      - 'dbt/**'
-      - '**/*.sql'
-      - 'apps/api/**'
+      - 'examples/demo-repository/schemas/**'
+      - 'sentinel_config.json'
 
 permissions:
   contents: read
@@ -28,9 +26,7 @@ jobs:
         run: |
           pip install -r apps/api/requirements.txt
       - name: Run Pytest Test Suite
-        run: |
-          cd apps/api
-          python -m pytest tests/
+        run: python -m pytest apps/api/tests/ -v
 
   frontend-build:
     name: Frontend Build Verification
@@ -41,41 +37,57 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - name: Install Frontend Dependencies
+        run: npm ci --prefix apps/web
+      - name: Lint Next.js Application
+        run: npm run lint --prefix apps/web
       - name: Build Next.js Application
         run: |
-          cd apps/web
-          npm ci
-          npm run build
+          npm run build --prefix apps/web
 
   sentinel-firewall:
     name: Sentinel AI Change Impact Firewall
     needs: [backend-test, frontend-build]
-    runs-on: ubuntu-latest
+    # The live DataHub instance is intentionally local to the Ubuntu runner.
+    # Never execute this job for an untrusted fork on the self-hosted machine.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+      - name: Verify Ubuntu Python
+        run: |
+          python3 --version
+          python3 -m pip --version
       - name: Install Dependencies
         run: |
-          pip install -r apps/api/requirements.txt
+          python3 -m pip install --user --break-system-packages -r apps/api/requirements.txt
+      - name: Validate local DataHub configuration
+        env:
+          DATAHUB_GMS_URL: http://localhost:8080
+          DATAHUB_GMS_TOKEN: ${{ secrets.DATAHUB_GMS_TOKEN || secrets.SENTINEL }}
+          DATAHUB_MCP_ENDPOINT: http://localhost:8001/mcp
+        run: |
+          test -n "$DATAHUB_GMS_TOKEN" || (echo "::error::DATAHUB_GMS_TOKEN or SENTINEL repository secret is required"; exit 1)
+          curl --fail --silent --show-error "$DATAHUB_GMS_URL/health" >/dev/null
+          curl --fail --silent --show-error "$DATAHUB_MCP_ENDPOINT" >/dev/null || true
       - name: Extract Real PR Schema Diff
         run: |
-          python scripts/extract_pr_diff.py \
+          python3 scripts/extract_pr_diff.py \
             --base ${{ github.event.pull_request.base.sha }} \
             --head ${{ github.event.pull_request.head.sha }} \
             --pr ${{ github.event.pull_request.number }}
       - name: Run Sentinel Investigation Engine
         env:
-          DATAHUB_GMS_URL: ${{ secrets.DATAHUB_GMS_URL }}
-          DATAHUB_GMS_TOKEN: ${{ secrets.DATAHUB_GMS_TOKEN }}
+          DATAHUB_GMS_URL: http://localhost:8080
+          DATAHUB_GMS_TOKEN: ${{ secrets.DATAHUB_GMS_TOKEN || secrets.SENTINEL }}
+          DATAHUB_MCP_ENDPOINT: http://localhost:8001/mcp
+          SENTINEL_DATA_MODE: live
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
           GITHUB_PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
-          python scripts/run_ci_check.py
+          python3 scripts/run_ci_check.py

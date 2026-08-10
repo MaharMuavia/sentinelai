@@ -1,49 +1,55 @@
-import os
-import json
-import logging
-from enum import Enum
-from typing import List, Dict, Any, Optional
-from datetime import datetime, timezone
-from pydantic import BaseModel, Field
-from app.config import settings
-from app.datahub.mcp_client import DataHubMCPClient, IntegrationMode
+from __future__ import annotations
 
-logger = logging.getLogger("sentinel.datahub.writeback")
+import json
+import os
+from datetime import datetime, timezone
+from enum import Enum
+from typing import List, Optional
+
+from pydantic import BaseModel, Field
+
+from app.config import settings
+from app.datahub.mcp_client import DataHubMCPClient
 
 
 class WritebackStatus(str, Enum):
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
+    PARTIAL_FAILURE = "PARTIAL_FAILURE"
     DISABLED = "DISABLED"
     DRY_RUN = "DRY_RUN"
     AWAITING_APPROVAL = "AWAITING_APPROVAL"
 
 
+class MutationOperationResult(BaseModel):
+    status: WritebackStatus
+    success: bool
+    executed: bool = False
+    error_detail: Optional[str] = None
+
+
 class WritebackResult(BaseModel):
     status: WritebackStatus
     success: bool
+    executed: bool = False
     document_urn: Optional[str] = None
     target_urn: str
     message: str
     error_detail: Optional[str] = None
-    timestamp: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
+    document_write: Optional[MutationOperationResult] = None
+    tag_write: Optional[MutationOperationResult] = None
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
 class DataHubWritebackEngine:
-    """
-    Official DataHub Writeback Engine powered by Model Context Protocol (MCP).
-    Persists investigation memory and additive tags into DataHub via MCP tool calls:
-    - save_document
-    - add_tags
-    Never returns fake success when mutation is disabled or failed.
-    """
-
     def __init__(self, gms_url: Optional[str] = None, token: Optional[str] = None):
-        self.gms_url = (gms_url or settings.DATAHUB_GMS_URL).rstrip("/")
-        self.token = token or settings.DATAHUB_GMS_TOKEN
-        self.mcp_client = DataHubMCPClient(gms_url=self.gms_url, token=self.token)
+        self.mcp_client = DataHubMCPClient(
+            gms_url=gms_url or settings.DATAHUB_GMS_URL,
+            token=token if token is not None else settings.DATAHUB_GMS_TOKEN,
+            mcp_endpoint=settings.DATAHUB_MCP_ENDPOINT,
+            mcp_command=settings.DATAHUB_MCP_COMMAND,
+            mcp_args=settings.DATAHUB_MCP_ARGS,
+        )
 
     async def writeback_investigation(
         self,
@@ -55,94 +61,135 @@ class DataHubWritebackEngine:
         confirmed_consumers: List[str],
         potential_consumers: List[str],
         summary: str,
-        evidence_trust: str = "LIVE DATAHUB MCP",
+        evidence_trust: str,
         pr_url: Optional[str] = None,
         remediation_status: Optional[str] = None,
         is_dry_run: bool = False,
-        is_approved: bool = True
+        approval_granted: bool = False,
     ) -> WritebackResult:
-        """
-        Persist Sentinel investigation outcome into DataHub as a persistent MCP Document.
-        Respects DATAHUB_MUTATION_ENABLED and human approval gating.
-        """
-        mutation_enabled = os.getenv("DATAHUB_MUTATION_ENABLED", str(settings.DATAHUB_MUTATION_ENABLED)).lower() == "true"
-
-        if not is_approved:
-            logger.info(f"Writeback skipped for investigation {investigation_id}: Awaiting human approval")
+        mutation_enabled = os.getenv(
+            "DATAHUB_MUTATION_ENABLED", str(settings.DATAHUB_MUTATION_ENABLED)
+        ).lower() == "true"
+        if not approval_granted:
             return WritebackResult(
                 status=WritebackStatus.AWAITING_APPROVAL,
                 success=False,
                 target_urn=dataset_urn,
-                message="Writeback paused: Awaiting human approval before mutating DataHub"
+                message="Writeback requires persisted server-side approval",
             )
-
         if not mutation_enabled:
-            logger.info(f"Writeback skipped for investigation {investigation_id}: DATAHUB_MUTATION_ENABLED is False")
             return WritebackResult(
                 status=WritebackStatus.DISABLED,
                 success=False,
                 target_urn=dataset_urn,
-                message="DataHub mutation disabled (DATAHUB_MUTATION_ENABLED=false). Investigation not written to GMS."
+                message="Sentinel DataHub mutations are disabled",
             )
-
         if is_dry_run:
-            logger.info(f"Writeback dry-run for investigation {investigation_id}")
             return WritebackResult(
                 status=WritebackStatus.DRY_RUN,
-                success=True,
+                success=False,
+                executed=False,
                 target_urn=dataset_urn,
-                message="Dry-run writeback simulation complete."
+                message="Dry-run requested; no external operation was executed",
             )
 
-        # Build investigation document content
-        doc_content = {
-            "sentinel_investigation_id": investigation_id,
-            "target_dataset_urn": dataset_urn,
-            "pr_url": pr_url or "N/A",
-            "risk_verdict": recommendation,
-            "severity": severity,
-            "evidence_coverage_percent": evidence_completeness,
-            "evidence_trust": evidence_trust,
-            "confirmed_consumers_count": len(confirmed_consumers),
-            "confirmed_consumers": confirmed_consumers,
-            "potential_consumers": potential_consumers,
-            "remediation_status": remediation_status or "NOT_GENERATED",
-            "investigation_summary": summary,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
-
-        doc_title = f"Sentinel AI Investigation: {recommendation} ({severity})"
-        doc_text = json.dumps(doc_content, indent=2)
-
-        # 1. Save document via DataHub MCP tool 'save_document'
-        res = await self.mcp_client.save_document(
-            urn=dataset_urn,
-            title=doc_title,
-            content=doc_text,
-            doc_type="SENTINEL_INVESTIGATION"
+        content = json.dumps(
+            {
+                "sentinel_investigation_id": investigation_id,
+                "target_dataset_urn": dataset_urn,
+                "pr_url": pr_url,
+                "risk_verdict": recommendation,
+                "severity": severity,
+                "evidence_coverage_percent": evidence_completeness,
+                "evidence_trust": evidence_trust,
+                "confirmed_consumers": confirmed_consumers,
+                "potential_consumers": potential_consumers,
+                "remediation_status": remediation_status,
+                "investigation_summary": summary,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+            indent=2,
         )
-
-        if res.success:
-            returned_urn = res.content.get("document_urn", res.content.get("urn", f"urn:li:document:{investigation_id}")) if isinstance(res.content, dict) else f"urn:li:document:{investigation_id}"
-
-            # 2. Add additive Sentinel tag via MCP tool 'add_tags'
-            tag_name = f"Sentinel_{recommendation}"
-            await self.mcp_client.add_tags(urn=dataset_urn, tags=[tag_name])
-
-            logger.info(f"Successfully persisted investigation {investigation_id} to DataHub via MCP document {returned_urn}")
-            return WritebackResult(
-                status=WritebackStatus.SUCCESS,
-                success=True,
-                document_urn=returned_urn,
-                target_urn=dataset_urn,
-                message=f"Investigation document successfully saved to DataHub ({returned_urn})"
+        document_result = await self.mcp_client.save_document(
+            title=f"Sentinel AI Investigation: {recommendation} ({severity})",
+            content=content,
+            related_assets=[dataset_urn],
+        )
+        if not document_result.success or not document_result.content:
+            failed = MutationOperationResult(
+                status=WritebackStatus.FAILED,
+                success=False,
+                executed=True,
+                error_detail=document_result.error_message or "save_document returned no valid result",
             )
-        else:
-            logger.error(f"DataHub MCP writeback failed for {investigation_id}: {res.error_message}")
             return WritebackResult(
                 status=WritebackStatus.FAILED,
                 success=False,
+                executed=True,
                 target_urn=dataset_urn,
-                message="DataHub MCP writeback failed",
-                error_detail=res.error_message or "MCP save_document tool execution error"
+                message="DataHub save_document failed",
+                error_detail=failed.error_detail,
+                document_write=failed,
             )
+
+        document_urn = self._document_urn(document_result.content)
+        if not document_urn:
+            failed = MutationOperationResult(
+                status=WritebackStatus.FAILED,
+                success=False,
+                executed=True,
+                error_detail="save_document succeeded without returning document identity",
+            )
+            return WritebackResult(
+                status=WritebackStatus.FAILED,
+                success=False,
+                executed=True,
+                target_urn=dataset_urn,
+                message="DataHub document identity was not returned; tag write was not attempted",
+                error_detail=failed.error_detail,
+                document_write=failed,
+            )
+
+        saved = MutationOperationResult(status=WritebackStatus.SUCCESS, success=True, executed=True)
+        tag_urn = f"urn:li:tag:Sentinel_{recommendation}"
+        tag_result = await self.mcp_client.add_tags(tag_urns=[tag_urn], entity_urns=[dataset_urn])
+        if not tag_result.success:
+            failed = MutationOperationResult(
+                status=WritebackStatus.FAILED,
+                success=False,
+                executed=True,
+                error_detail=tag_result.error_message or "add_tags returned an error",
+            )
+            return WritebackResult(
+                status=WritebackStatus.PARTIAL_FAILURE,
+                success=False,
+                executed=True,
+                document_urn=document_urn,
+                target_urn=dataset_urn,
+                message="Investigation document saved, but Sentinel tag write failed",
+                error_detail=failed.error_detail,
+                document_write=saved,
+                tag_write=failed,
+            )
+
+        return WritebackResult(
+            status=WritebackStatus.SUCCESS,
+            success=True,
+            executed=True,
+            document_urn=document_urn,
+            target_urn=dataset_urn,
+            message="Investigation document and Sentinel tag saved to DataHub",
+            document_write=saved,
+            tag_write=MutationOperationResult(status=WritebackStatus.SUCCESS, success=True, executed=True),
+        )
+
+    @staticmethod
+    def _document_urn(content: dict) -> Optional[str]:
+        for key in ("document_urn", "documentUrn", "urn", "id"):
+            value = content.get(key)
+            if isinstance(value, str) and value.startswith("urn:li:document:"):
+                return value
+        document = content.get("document")
+        if isinstance(document, dict):
+            return DataHubWritebackEngine._document_urn(document)
+        return None

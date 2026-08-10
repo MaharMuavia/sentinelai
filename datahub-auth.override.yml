@@ -1,0 +1,7 @@
+services:
+  datahub-gms-quickstart:
+    environment:
+      METADATA_SERVICE_AUTH_ENABLED: "true"
+  frontend-quickstart:
+    environment:
+      METADATA_SERVICE_AUTH_ENABLED: "true"

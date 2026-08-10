@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { 
-  Shield, GitPullRequest, ArrowRight, CheckCircle2, ShieldAlert, Sparkles, 
-  Database, Cpu, Code, Layers, FileCode, Check, Activity, BarChart3, AlertTriangle, ArrowUpRight 
+  GitPullRequest, ArrowRight, CheckCircle2, ShieldAlert, Sparkles,
+  Database, Code, Layers, FileCode
 } from "lucide-react";
 
 export default function LandingPage() {
@@ -80,20 +80,25 @@ export default function LandingPage() {
                     DECISION: BLOCK MERGE
                   </span>
                 </div>
-                <span className="text-xs font-mono font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
-                  Evidence Completeness: 100% Verified
+                <span className="text-xs font-mono font-bold text-amber-800 bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
+                  Illustrative fixture scenario - not live verified
                 </span>
               </div>
 
               {/* Lineage Path Preview */}
               <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-2 text-xs font-mono">
-                <div className="text-slate-500 font-bold uppercase text-[10px] tracking-wider">Critical Verified Downstream Path</div>
+                <div className="text-slate-500 font-bold uppercase text-[10px] tracking-wider">Illustrative Downstream Branches</div>
                 <div className="flex items-center gap-2 text-slate-800 font-bold flex-wrap">
                   <span className="px-2.5 py-1 bg-amber-100 text-amber-900 rounded border border-amber-200">raw_customers.email</span>
                   <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
                   <span className="px-2.5 py-1 bg-red-100 text-red-900 rounded border border-red-200">customer_360.email</span>
                   <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
                   <span className="px-2.5 py-1 bg-blue-100 text-blue-900 rounded border border-blue-200">marketing_dashboard</span>
+                </div>
+                <div className="flex items-center gap-2 text-slate-800 font-bold flex-wrap">
+                  <span className="px-2.5 py-1 bg-amber-100 text-amber-900 rounded border border-amber-200">raw_customers.email</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
+                  <span className="px-2.5 py-1 bg-red-100 text-red-900 rounded border border-red-200">customer_360.email</span>
                   <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
                   <span className="px-2.5 py-1 bg-purple-100 text-purple-900 rounded border border-purple-200">churn_model</span>
                 </div>
@@ -131,7 +136,7 @@ export default function LandingPage() {
             </div>
             <h3 className="font-bold text-slate-900 text-base">DataHub Context Engine</h3>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Queries live DataHub GMS OpenAPI endpoints for column-level lineage, dataset query logs, technical owners, and business tags.
+              Queries DataHub through the official MCP tools for lineage, dataset query logs, technical owners, and tags.
             </p>
           </div>
 
@@ -151,7 +156,7 @@ export default function LandingPage() {
             </div>
             <h3 className="font-bold text-slate-900 text-base">Transparent Evidence Score</h3>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Calculates a 100% deterministic Evidence Completeness score based on 5 verified organizational metadata signals. No fake LLM confidence scores.
+              Calculates a deterministic score from individually displayed metadata signals. Missing or unavailable evidence remains missing.
             </p>
           </div>
 
@@ -161,7 +166,7 @@ export default function LandingPage() {
             </div>
             <h3 className="font-bold text-slate-900 text-base">SQLGlot AST Patch Generator</h3>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Modifies downstream dbt model SQL ASTs to eliminate deleted column references in <code className="font-mono bg-slate-100 px-1 py-0.5 rounded">SELECT</code> and <code className="font-mono bg-slate-100 px-1 py-0.5 rounded">WHERE</code> clauses with static syntax validation.
+              Generates a validated projection-only candidate when the deleted field is safe to remove. References in <code className="font-mono bg-slate-100 px-1 py-0.5 rounded">WHERE</code>, joins, grouping, or other predicates require human review.
             </p>
           </div>
 
@@ -171,7 +176,7 @@ export default function LandingPage() {
             </div>
             <h3 className="font-bold text-slate-900 text-base">DataHub Writeback Engine</h3>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Ingests Sentinel aspect proposals back into DataHub GMS and annotates dataset descriptions for lasting organizational memory.
+            After authenticated approval, writes a real investigation document and Sentinel risk tag when the configured MCP mutation tools succeed.
             </p>
           </div>
         </div>
@@ -199,7 +204,7 @@ export default function LandingPage() {
               <tr>
                 <td className="p-4 font-bold text-slate-900">Lineage & Metadata Source</td>
                 <td className="p-4 text-slate-600">Provides graph & entities</td>
-                <td className="p-4 bg-blue-50/30 text-blue-950 font-bold">Queries DataHub GMS REST API</td>
+                <td className="p-4 bg-blue-50/30 text-blue-950 font-bold">Queries DataHub MCP tools</td>
               </tr>
               <tr>
                 <td className="p-4 font-bold text-slate-900">Pre-Merge Decision Engine</td>
@@ -233,7 +238,7 @@ export default function LandingPage() {
             Ready to test Sentinel AI on your data stack?
           </h2>
           <p className="text-blue-100 text-sm leading-relaxed">
-            Run the hackathon demo scenario in one click. Experience the 13-stage autonomous change control workflow live.
+            Launch the analysis workflow against the configured DataHub mode. Every result states whether its evidence is live MCP, an explicit fixture, or unavailable.
           </p>
         </div>
 

@@ -57,7 +57,7 @@ class GitHubClient:
         if not pr_url:
             return None, None, "PR URL is required."
 
-        pattern = r"^https:\/\/github\.com\/([a-zA-Z0-9_\-\.\/]+)\/pull\/(\d+)\/?"
+        pattern = r"^https:\/\/github\.com\/([a-zA-Z0-9_\-\.]+\/[a-zA-Z0-9_\-\.]+)\/pull\/(\d+)\/?$"
         match = re.match(pattern, pr_url.strip())
         if not match:
             return None, None, f"Invalid GitHub PR URL format '{pr_url}'. Expected 'https://github.com/<owner>/<repo>/pull/<number>'."
@@ -82,9 +82,17 @@ class GitHubClient:
         recommended_action: str,
         remediation_diff: Optional[str] = None,
         investigation_id: Optional[str] = None,
-        is_approved: bool = True
+        approval_granted: bool = False
     ) -> GitHubActionResult:
         """Post a formatted Sentinel AI change impact review comment to a GitHub PR."""
+
+        if not approval_granted:
+            return GitHubActionResult(
+                status=GitHubActionStatus.AWAITING_APPROVAL,
+                success=False,
+                action_type="COMMENT",
+                message="GitHub comment not executed: persisted approval is required",
+            )
 
         owner_repo, pr_number, parse_err = self.parse_pr_url(pr_url)
         if parse_err or not owner_repo or not pr_number:
@@ -105,14 +113,6 @@ class GitHubClient:
                 success=False,
                 action_type="COMMENT",
                 message=err_msg
-            )
-
-        if not is_approved:
-            return GitHubActionResult(
-                status=GitHubActionStatus.AWAITING_APPROVAL,
-                success=False,
-                action_type="COMMENT",
-                message="GitHub comment paused: Awaiting human approval before posting to PR"
             )
 
         if not self.is_configured():

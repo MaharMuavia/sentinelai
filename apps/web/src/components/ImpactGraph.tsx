@@ -12,7 +12,7 @@ interface ImpactGraphProps {
       id: string;
       label: string;
       type: string;
-      platform: string;
+      platform?: string;
       classification: string;
       owners: string[];
       tags: string[];
@@ -22,7 +22,7 @@ interface ImpactGraphProps {
       target: string;
       lineage_type: string;
       field_mapping?: string;
-      hop_count: number;
+      hop_count?: number;
     }>;
   };
 }

@@ -12,8 +12,10 @@ import argparse
 import asyncio
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 # Add apps/api to path for orchestrator
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "apps", "api")))
+sys.path.insert(0, str(REPO_ROOT / "apps" / "api"))
 
 from app.db.database import SessionLocal, init_db
 from app.schema_engine.diff import SchemaSnapshot
@@ -23,6 +25,8 @@ from app.risk.engine import DecisionVerdict
 
 async def run_ci_check(diff_file: str, pr_url: str):
     diff_path = Path(diff_file)
+    if not diff_path.is_absolute():
+        diff_path = REPO_ROOT / diff_path
     if not diff_path.exists():
         print(f"[Sentinel CI Firewall] ERROR: Sentinel change artifact '{diff_file}' missing!")
         print("[Sentinel CI Firewall] Policy Enforcement: FAIL-CLOSED -> Exit Code 1")
@@ -82,7 +86,10 @@ async def run_ci_check(diff_file: str, pr_url: str):
         verdict = investigation.recommendation
 
         if verdict == DecisionVerdict.SAFE_TO_MERGE:
-            print("[Sentinel CI Firewall] SUCCESS: PR schema modifications verified safe to merge.")
+            if investigation.evidence_trust.startswith("DEMO FIXTURE"):
+                print("[Sentinel CI Firewall] SUCCESS: Explicit demo scenario policy is SAFE_TO_MERGE (not live verified).")
+            else:
+                print("[Sentinel CI Firewall] SUCCESS: PR schema modifications are safe to merge.")
             print("[Sentinel CI Firewall] Policy Enforcement -> Exit Code 0")
             sys.exit(0)
 
@@ -122,7 +129,7 @@ def main():
     args = parser.parse_args()
 
     diff_file = args.fixture if args.fixture else args.diff_file
-    pr_url = args.pr_url or os.getenv("GITHUB_PR_URL") or "https://github.com/acme/data-platform/pull/42"
+    pr_url = args.pr_url or os.getenv("GITHUB_PR_URL") or ""
 
     asyncio.run(run_ci_check(diff_file, pr_url))
 

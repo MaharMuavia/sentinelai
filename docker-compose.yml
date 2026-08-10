@@ -1,30 +1,78 @@
-version: '3.8'
-
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sentinel}
+      POSTGRES_USER: ${POSTGRES_USER:-sentinel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sentinel-local-only}
+    volumes:
+      - sentinel-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  datahub-mcp:
+    build:
+      context: ./apps/datahub-mcp
+      dockerfile: Dockerfile
+    ports:
+      - "${DATAHUB_MCP_PORT:-8001}:8000"
+    environment:
+      DATAHUB_GMS_URL: ${DATAHUB_DOCKER_GMS_URL:-http://host.docker.internal:8080}
+      DATAHUB_GMS_TOKEN: ${DATAHUB_GMS_TOKEN:-}
+      TOOLS_IS_MUTATION_ENABLED: ${TOOLS_IS_MUTATION_ENABLED:-false}
+      SAVE_DOCUMENT_TOOL_ENABLED: ${SAVE_DOCUMENT_TOOL_ENABLED:-true}
+      DATAHUB_MCP_DOCUMENT_TOOLS_DISABLED: ${DATAHUB_MCP_DOCUMENT_TOOLS_DISABLED:-false}
+      FASTMCP_HOST: 0.0.0.0
+      FASTMCP_PORT: 8000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   api:
     build:
       context: ./apps/api
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
     environment:
-      - DATAHUB_GMS_URL=${DATAHUB_GMS_URL:-http://datahub-gms:8080}
+      - DATAHUB_GMS_URL=${DATAHUB_DOCKER_GMS_URL:-http://host.docker.internal:8080}
       - DATAHUB_GMS_TOKEN=${DATAHUB_GMS_TOKEN:-}
+      - DATAHUB_MCP_ENDPOINT=${DATAHUB_MCP_ENDPOINT:-http://datahub-mcp:8000/mcp}
+      - DATAHUB_MUTATION_ENABLED=${DATAHUB_MUTATION_ENABLED:-false}
+      - SENTINEL_DATA_MODE=${SENTINEL_DATA_MODE:-live}
+      - AUTH_MODE=${AUTH_MODE:-static}
+      - SENTINEL_AUTH_TOKEN=${SENTINEL_AUTH_TOKEN:-}
+      - OIDC_ISSUER=${OIDC_ISSUER:-}
+      - OIDC_AUDIENCE=${OIDC_AUDIENCE:-}
+      - OIDC_JWKS_URL=${OIDC_JWKS_URL:-}
+      - OIDC_ALGORITHM=${OIDC_ALGORITHM:-RS256}
+      - OIDC_REQUIRED_SCOPES=${OIDC_REQUIRED_SCOPES:-sentinel:mutate}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
-    volumes:
-      - sentinel-data:/app/data
+      - GITHUB_REPOSITORY=${GITHUB_REPOSITORY:-}
+      - DATABASE_URL=${COMPOSE_DATABASE_URL:-postgresql+psycopg://sentinel:sentinel-local-only@postgres:5432/sentinel}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      datahub-mcp:
+        condition: service_healthy
 
   web:
     build:
       context: ./apps/web
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     ports:
-      - "3000:3000"
-    environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - "${WEB_PORT:-3000}:3000"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
-  sentinel-data:
+  sentinel-postgres:

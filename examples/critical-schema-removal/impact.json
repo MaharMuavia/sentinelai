@@ -1,51 +1,56 @@
 {
-  "severity": "HIGH",
-  "verdict": "INSUFFICIENT_EVIDENCE",
-  "evidence_completeness": 0.0,
-  "evidence_trust": "DATAHUB UNAVAILABLE",
+  "severity": "CRITICAL",
+  "verdict": "BLOCK",
+  "evidence_completeness": 85.0,
+  "evidence_trust": "DEMO FIXTURE \u2014 NOT LIVE VERIFIED",
   "risk_factors": [
     {
-      "name": "DATAHUB_CATALOG_UNAVAILABLE",
+      "name": "BREAKING_SCHEMA_CHANGE",
       "impact": "HIGH",
-      "description": "DataHub metadata service was unreachable during change evaluation."
+      "description": "1 breaking schema modification(s) detected (e.g. Field 'email' removed from dataset schema)"
     },
     {
-      "name": "UNVERIFIED_BREAKING_SCHEMA_CHANGE",
+      "name": "CONFIRMED_DOWNSTREAM_CONSUMERS",
+      "impact": "HIGH",
+      "description": "4 downstream asset(s) are confirmed users of modified field(s)."
+    },
+    {
+      "name": "CRITICAL_BUSINESS_ASSET_IMPACT",
       "impact": "CRITICAL",
-      "description": "1 breaking change(s) proposed without catalog evidence."
+      "description": "Affected downstream consumers include Executive Dashboards and Production ML Models."
     }
   ],
   "completeness_breakdown": [
     {
       "signal_name": "SCHEMA_VERIFIED",
-      "is_present": false,
+      "is_present": true,
       "weight": 25.0,
-      "description": "DataHub GMS metadata catalog unavailable or unreachable."
+      "description": "Schema metadata was retrieved and parsed successfully"
     },
     {
       "signal_name": "COLUMN_LINEAGE_AVAILABLE",
-      "is_present": false,
+      "is_present": true,
       "weight": 25.0,
-      "description": "Column-level lineage could not be retrieved from DataHub."
+      "description": "A valid column lineage result was returned"
     },
     {
       "signal_name": "QUERY_USAGE_HISTORY",
-      "is_present": false,
+      "is_present": true,
       "weight": 20.0,
-      "description": "Query execution log history unavailable."
+      "description": "Query usage records were retrieved; absent records remain unknown"
     },
     {
       "signal_name": "OWNERSHIP_ASSIGNED",
-      "is_present": false,
+      "is_present": true,
       "weight": 15.0,
-      "description": "Asset ownership unverified due to catalog connection failure."
+      "description": "Ownership metadata was retrieved for the affected assets"
     },
     {
       "signal_name": "EXACT_LINEAGE_PATH_VERIFIED",
       "is_present": false,
       "weight": 15.0,
-      "description": "Multi-hop lineage tracing unavailable."
+      "description": "get_lineage_paths_between returned a matching path"
     }
   ],
-  "policy_triggered": "FAIL-CLOSED POLICY: Breaking schema change proposed while DataHub context is unavailable."
+  "policy_triggered": "CRITICAL BLOCK: Breaking schema change on field with confirmed downstream executive dashboards or ML models."
 }

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Shield, GitPullRequest, Layers, Database, Sparkles, LayoutDashboard, Home } from "lucide-react";
+import { Shield, GitPullRequest, Database, Sparkles, LayoutDashboard, Home } from "lucide-react";
 
 export function Navbar() {
   const pathname = usePathname();

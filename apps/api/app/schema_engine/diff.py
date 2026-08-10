@@ -2,6 +2,7 @@ from enum import Enum
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 import datetime
+import re
 
 
 class ChangeType(str, Enum):
@@ -14,14 +15,14 @@ class ChangeType(str, Enum):
 
 class SchemaField(BaseModel):
     name: str
-    type: str
+    type: Optional[str] = None
     nullable: bool = True
     description: Optional[str] = None
 
 
 class DatasetIdentifier(BaseModel):
     urn: str
-    platform: Optional[str] = "snowflake"
+    platform: Optional[str] = None
     name: str
     env: str = "PROD"
 
@@ -84,6 +85,13 @@ class SchemaDiffEngine:
         removed_names = set(before_fields.keys()) - set(after_fields.keys())
         added_names = set(after_fields.keys()) - set(before_fields.keys())
         common_names = set(before_fields.keys()) & set(after_fields.keys())
+        for old_name, new_name in renames.items():
+            if old_name not in before_fields:
+                raise ValueError(f"Explicit rename source '{old_name}' does not exist in the before schema")
+            if new_name not in after_fields:
+                raise ValueError(f"Explicit rename target '{new_name}' does not exist in the after schema")
+            if old_name not in removed_names or new_name not in added_names:
+                raise ValueError(f"Explicit rename '{old_name}' -> '{new_name}' is not a pure removed/added pair")
 
         # 1. Process explicit renames first
         processed_renames: set = set()
@@ -136,14 +144,19 @@ class SchemaDiffEngine:
             a_field = after_fields[c_name]
 
             # Type change
-            if b_field.type.lower() != a_field.type.lower():
+            if b_field.type != a_field.type and (b_field.type is not None or a_field.type is not None):
+                compatible = (
+                    SchemaDiffEngine.is_type_compatible(b_field.type, a_field.type)
+                    if b_field.type is not None and a_field.type is not None
+                    else False
+                )
                 changes.append(SchemaChange(
                     field=b_field.name,
                     change_type=ChangeType.TYPE_CHANGED,
                     old_state={"type": b_field.type},
                     proposed_state={"type": a_field.type},
-                    is_breaking=True,
-                    details=f"Type of field '{b_field.name}' changed from '{b_field.type}' to '{a_field.type}'"
+                    is_breaking=not compatible,
+                    details=f"Type of field '{b_field.name}' changed from '{b_field.type}' to '{a_field.type}' ({'compatible widening' if compatible else 'potentially incompatible'})"
                 ))
 
             # Nullability change
@@ -164,3 +177,33 @@ class SchemaDiffEngine:
             source=source,
             changes=changes
         )
+
+    @staticmethod
+    def is_type_compatible(before_type: str, after_type: str) -> bool:
+        """Snowflake-oriented compatibility matrix used by the deterministic policy.
+
+        Widening numeric precision/scale and string capacity are compatible;
+        narrowing, temporal-family changes, and cross-family changes fail closed.
+        """
+        before = before_type.upper().strip()
+        after = after_type.upper().strip()
+        if before == after:
+            return True
+        if before.startswith("VARCHAR") and after.startswith("VARCHAR"):
+            return SchemaDiffEngine._capacity(after) >= SchemaDiffEngine._capacity(before)
+        if before.startswith("NUMBER") and after.startswith("NUMBER"):
+            return SchemaDiffEngine._numeric_capacity(after) >= SchemaDiffEngine._numeric_capacity(before)
+        numeric = {"INT", "INTEGER", "BIGINT", "SMALLINT", "FLOAT", "DOUBLE", "REAL", "DECIMAL", "NUMERIC"}
+        if before in numeric and after in numeric:
+            return True
+        return False
+
+    @staticmethod
+    def _capacity(type_name: str) -> int:
+        match = re.search(r"\((\d+)\)", type_name)
+        return int(match.group(1)) if match else 2**31
+
+    @staticmethod
+    def _numeric_capacity(type_name: str) -> tuple[int, int]:
+        match = re.search(r"\((\d+)\s*,\s*(\d+)\)", type_name)
+        return (int(match.group(1)), int(match.group(2))) if match else (38, 38)

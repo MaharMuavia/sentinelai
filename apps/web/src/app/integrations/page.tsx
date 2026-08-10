@@ -1,23 +1,37 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Database, Cpu, GitPullRequest, CheckCircle2, AlertTriangle, RefreshCw, Server, ShieldCheck, Activity } from "lucide-react";
+import { Database, Cpu, GitPullRequest, CheckCircle2, AlertTriangle, RefreshCw, Server } from "lucide-react";
 import { fetchIntegrationsStatus, IntegrationStatus } from "@/lib/api";
 
 export default function IntegrationsPage() {
   const [status, setStatus] = useState<IntegrationStatus | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const loadStatus = () => {
+  const loadStatus = async () => {
     setLoading(true);
-    fetchIntegrationsStatus()
-      .then((res) => setStatus(res))
-      .catch((err) => console.error(err))
-      .finally(() => setLoading(false));
+    try {
+      setStatus(await fetchIntegrationsStatus());
+    } catch (error: unknown) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
-    loadStatus();
+    let cancelled = false;
+    fetchIntegrationsStatus()
+      .then((result) => {
+        if (!cancelled) setStatus(result);
+      })
+      .catch((error: unknown) => console.error(error))
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
@@ -36,7 +50,7 @@ export default function IntegrationsPage() {
         </div>
 
         <button
-          onClick={loadStatus}
+          onClick={() => void loadStatus()}
           className="px-4 py-2.5 rounded-xl bg-white hover:bg-slate-50 text-slate-700 text-xs font-mono font-bold border border-slate-200 shadow-sm transition flex items-center gap-2 self-start sm:self-auto cursor-pointer"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -67,7 +81,7 @@ export default function IntegrationsPage() {
                   : "bg-amber-100 text-amber-800 border border-amber-200"
               }`}>
                 {status?.datahub.connected ? <CheckCircle2 className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
-                {status?.datahub.connected ? "LIVE GMS CONNECTED" : "LOCAL METADATA FALLBACK"}
+                {status?.datahub.connected ? "LIVE MCP CONNECTED" : "DATAHUB UNAVAILABLE"}
               </span>
             </div>
 
