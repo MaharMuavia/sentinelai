@@ -1,7 +1,7 @@
 export interface IntegrationStatus {
   datahub: { name: string; url: string; connected: boolean; mode: string; discovered_tools?: string[] };
   llm: { name: string; model: string; connected: boolean; mode: string };
-  github: { name: string; repository: string; connected: boolean; mode: string };
+  github: { name: string; repository: string; configured: boolean; connected: boolean; mode: string };
 }
 
 export interface InvestigationSummary {

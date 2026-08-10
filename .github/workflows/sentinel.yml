@@ -4,15 +4,34 @@ on:
   pull_request:
     branches:
       - main
-    paths:
-      - 'examples/demo-repository/schemas/**'
-      - 'sentinel_config.json'
 
 permissions:
   contents: read
   pull-requests: write
 
 jobs:
+  detect-schema-changes:
+    name: Detect Schema Changes
+    runs-on: ubuntu-latest
+    outputs:
+      relevant: ${{ steps.changes.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: changes
+        name: Check Firewall-Relevant Paths
+        shell: bash
+        run: |
+          if git diff --name-only \
+            "${{ github.event.pull_request.base.sha }}" \
+            "${{ github.event.pull_request.head.sha }}" \
+            | grep -Eq '^(examples/demo-repository/schemas/|sentinel_config\.json$)'; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+          fi
+
   backend-test:
     name: Backend Test & Lint Gate
     runs-on: ubuntu-latest
@@ -41,16 +60,20 @@ jobs:
         run: npm ci --prefix apps/web
       - name: Lint Next.js Application
         run: npm run lint --prefix apps/web
+      - name: Run Frontend Regression Tests
+        run: npm run test --prefix apps/web
       - name: Build Next.js Application
         run: |
           npm run build --prefix apps/web
 
   sentinel-firewall:
     name: Sentinel AI Change Impact Firewall
-    needs: [backend-test, frontend-build]
+    needs: [detect-schema-changes, backend-test, frontend-build]
     # The live DataHub instance is intentionally local to the Ubuntu runner.
     # Never execute this job for an untrusted fork on the self-hosted machine.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.detect-schema-changes.outputs.relevant == 'true'
     runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4

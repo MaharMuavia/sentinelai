@@ -214,6 +214,12 @@ API requests do not launch a new subprocess for each tool call. Set a strong
 docker compose up --build
 ```
 
+Compose binds the web, API, and MCP ports to `127.0.0.1` by default. The read
+and analysis endpoints intentionally support the local interactive demo and do
+not require user authentication. Before exposing Sentinel on a network, place
+an authenticated reverse proxy in front of both the web application and API;
+only then override `BIND_ADDRESS=0.0.0.0`.
+
 The API waits for PostgreSQL and MCP health checks before starting. For an
 external managed MCP server, override `DATAHUB_MCP_ENDPOINT`. For an external
 managed PostgreSQL database, set `COMPOSE_DATABASE_URL`. Set
@@ -251,6 +257,7 @@ The request body cannot self-approve an investigation.
 python -m pytest apps/api/tests/ -v
 npm ci --prefix apps/web
 npm run lint --prefix apps/web
+npm run test --prefix apps/web
 npm run build --prefix apps/web
 ```
 

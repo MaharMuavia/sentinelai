@@ -7,6 +7,7 @@ import { GitPullRequest, Play, CheckCircle2, Loader2, Sparkles, AlertTriangle, C
 interface WorkflowStreamPayload {
   type?: string;
   stage?: string;
+  message?: string;
   data?: { investigation_id?: string };
 }
 
@@ -101,6 +102,8 @@ export default function AnalyzePage() {
     setIsAnalyzing(true);
     setErrorMsg(null);
     setCurrentStageIdx(0);
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 120_000);
 
     try {
       const before = JSON.parse(beforeJson);
@@ -110,6 +113,7 @@ export default function AnalyzePage() {
       const response = await fetch(`${API_BASE}/api/changes/analyze/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           before_schema: before,
           after_schema: after,
@@ -124,6 +128,7 @@ export default function AnalyzePage() {
       const decoder = new TextDecoder();
       let buffer = '';
       let investigationId = '';
+      let streamError = '';
 
       while (true) {
         const { done, value } = await reader.read();
@@ -140,6 +145,8 @@ export default function AnalyzePage() {
               if (payload.type === 'RESULT') {
                 investigationId = payload.data?.investigation_id ?? '';
                 setCurrentStageIdx(WORKFLOW_STAGES.length - 1);
+              } else if (payload.type === 'ERROR') {
+                streamError = payload.message || 'Investigation failed before completion';
               } else if (payload.stage) {
                 const stageIdx = WORKFLOW_STAGES.findIndex(s => s.id === payload.stage);
                 if (stageIdx >= 0) setCurrentStageIdx(stageIdx);
@@ -151,12 +158,17 @@ export default function AnalyzePage() {
         }
       }
 
-      if (investigationId) {
-        setTimeout(() => router.push(`/investigations/${investigationId}`), 600);
-      }
+      if (streamError) throw new Error(streamError);
+      if (!investigationId) throw new Error('Analysis stream ended without an investigation result.');
+      router.push(`/investigations/${investigationId}`);
     } catch (err: unknown) {
       console.error(err);
-      setErrorMsg(err instanceof Error ? err.message : 'Failed to analyze change payload.');
+      const message = err instanceof Error && err.name === 'AbortError'
+        ? 'Analysis timed out after 120 seconds.'
+        : err instanceof Error ? err.message : 'Failed to analyze change payload.';
+      setErrorMsg(message);
+    } finally {
+      window.clearTimeout(timeoutId);
       setIsAnalyzing(false);
     }
   };
@@ -214,11 +226,12 @@ export default function AnalyzePage() {
 
       {/* PR URL Input */}
       <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm space-y-2">
-        <label className="block text-xs font-mono font-bold text-slate-700 uppercase">
+        <label htmlFor="pr-url" className="block text-xs font-mono font-bold text-slate-700 uppercase">
           GitHub Pull Request URL (Optional)
         </label>
         <input
-          type="text"
+          id="pr-url"
+          type="url"
           value={prUrl}
           onChange={(e) => setPrUrl(e.target.value)}
                 placeholder="https://github.com/owner/repository/pull/123"
@@ -230,12 +243,14 @@ export default function AnalyzePage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm space-y-3">
           <div className="flex items-center justify-between">
-            <label className="text-xs font-mono font-bold text-blue-700 uppercase flex items-center gap-1.5">
+            <label htmlFor="before-schema" className="text-xs font-mono font-bold text-blue-700 uppercase flex items-center gap-1.5">
               <Code className="w-4 h-4 text-blue-600" /> Current Schema (Before)
             </label>
             <span className="text-[11px] font-mono text-slate-400">JSON Payload</span>
           </div>
           <textarea
+            id="before-schema"
+            spellCheck={false}
             rows={12}
             value={beforeJson}
             onChange={(e) => setBeforeJson(e.target.value)}
@@ -245,7 +260,7 @@ export default function AnalyzePage() {
 
         <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm space-y-3">
           <div className="flex items-center justify-between">
-            <label className="text-xs font-mono font-bold text-amber-700 uppercase flex items-center gap-1.5">
+            <label htmlFor="after-schema" className="text-xs font-mono font-bold text-amber-700 uppercase flex items-center gap-1.5">
               <Code className="w-4 h-4 text-amber-600" /> Proposed Schema (After)
             </label>
             <span className="text-[11px] font-mono text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
@@ -253,6 +268,8 @@ export default function AnalyzePage() {
             </span>
           </div>
           <textarea
+            id="after-schema"
+            spellCheck={false}
             rows={12}
             value={afterJson}
             onChange={(e) => setAfterJson(e.target.value)}
@@ -262,7 +279,7 @@ export default function AnalyzePage() {
       </div>
 
       {errorMsg && (
-        <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-800 text-sm flex items-center gap-3">
+        <div role="alert" className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-800 text-sm flex items-center gap-3">
           <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
           {errorMsg}
         </div>
@@ -270,7 +287,7 @@ export default function AnalyzePage() {
 
       {/* Live 13-Stage Workflow Tracker */}
       {isAnalyzing && (
-        <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm space-y-5">
+        <div aria-live="polite" className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm space-y-5">
           <div className="flex items-center justify-between border-b border-slate-100 pb-4">
             <div>
               <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">

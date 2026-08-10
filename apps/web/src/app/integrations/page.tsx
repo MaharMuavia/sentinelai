@@ -7,13 +7,16 @@ import { fetchIntegrationsStatus, IntegrationStatus } from "@/lib/api";
 export default function IntegrationsPage() {
   const [status, setStatus] = useState<IntegrationStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const loadStatus = async () => {
     setLoading(true);
+    setError(null);
     try {
       setStatus(await fetchIntegrationsStatus());
     } catch (error: unknown) {
       console.error(error);
+      setError(error instanceof Error ? error.message : "Failed to verify integration status");
     } finally {
       setLoading(false);
     }
@@ -23,9 +26,15 @@ export default function IntegrationsPage() {
     let cancelled = false;
     fetchIntegrationsStatus()
       .then((result) => {
-        if (!cancelled) setStatus(result);
+        if (!cancelled) {
+          setStatus(result);
+          setError(null);
+        }
       })
-      .catch((error: unknown) => console.error(error))
+      .catch((error: unknown) => {
+        console.error(error);
+        if (!cancelled) setError(error instanceof Error ? error.message : "Failed to verify integration status");
+      })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
@@ -45,7 +54,7 @@ export default function IntegrationsPage() {
             Integrations & Service Topology
           </h1>
           <p className="text-slate-500 text-sm mt-1">
-            Real-time live connectivity verification for DataHub GMS, AI Reasoning Engine, and GitHub API.
+            Explicit connectivity checks for DataHub and GitHub, with deterministic fallback status for AI reasoning.
           </p>
         </div>
 
@@ -57,6 +66,12 @@ export default function IntegrationsPage() {
           Verify Live Status
         </button>
       </div>
+
+      {error && (
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          {error}. Confirm that the API is running and try again.
+        </div>
+      )}
 
       {loading && !status ? (
         <div className="p-12 text-center text-slate-500 font-mono">Verifying live service topology status...</div>
@@ -146,7 +161,9 @@ export default function IntegrationsPage() {
                   : "bg-slate-100 text-slate-700"
               }`}>
                 {status?.github.connected ? <CheckCircle2 className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
-                {status?.github.connected ? "API CONNECTED" : "LOCAL DRY-RUN"}
+                {status?.github.connected
+                  ? "API VERIFIED"
+                  : status?.github.configured ? "UNVERIFIED" : "DISABLED"}
               </span>
             </div>
 

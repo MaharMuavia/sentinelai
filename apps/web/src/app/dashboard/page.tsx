@@ -8,13 +8,20 @@ import { fetchInvestigations, InvestigationSummary } from "@/lib/api";
 export default function DashboardPage() {
   const [investigations, setInvestigations] = useState<InvestigationSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [severityFilter, setSeverityFilter] = useState<string>("ALL");
 
   useEffect(() => {
     fetchInvestigations()
-      .then((data) => setInvestigations(data))
-      .catch((err) => console.error("Error loading investigations:", err))
+      .then((data) => {
+        setInvestigations(data);
+        setLoadError(null);
+      })
+      .catch((err: unknown) => {
+        console.error("Error loading investigations:", err);
+        setLoadError(err instanceof Error ? err.message : "Failed to load investigations");
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -56,6 +63,12 @@ export default function DashboardPage() {
           </Link>
         </div>
       </div>
+
+      {loadError && (
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          {loadError}. Confirm that the Sentinel API is running, then reload this page.
+        </div>
+      )}
 
       {/* Metrics Dashboard Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -119,6 +132,7 @@ export default function DashboardPage() {
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
               <input
                 type="text"
+                aria-label="Search investigations by URN or ID"
                 placeholder="Search URN or ID..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}

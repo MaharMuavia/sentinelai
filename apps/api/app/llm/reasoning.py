@@ -60,6 +60,7 @@ class LLMReasoningEngine:
 
         field_names = ", ".join([f"'{c.field}'" for c in breaking]) or "schema fields"
         dataset_name = bundle.dataset_name
+        evidence_word = "verified" if bundle.integration_mode.value == "LIVE_DATAHUB" else "observed in the explicit demo scenario"
 
         if risk.verdict == DecisionVerdict.INSUFFICIENT_EVIDENCE:
             exec_summary = (
@@ -71,17 +72,31 @@ class LLMReasoningEngine:
             )
             rec_action = "Verify DataHub connectivity or supply missing lineage metadata before merging PR."
             remediation_strat = "Require manual engineering review and verify downstream models manually."
+        elif not breaking:
+            exec_summary = (
+                f"Proposed change to dataset '{dataset_name}' modifies {len(bundle.changes.changes)} field(s) "
+                f"without a breaking schema change. Sentinel {evidence_word} {bundle.confirmed_consumers_count} "
+                f"confirmed downstream consumer(s) across the DataHub lineage graph ({bundle.integration_mode.value})."
+            )
+            why_matters = (
+                "The change is additive or relaxes an existing constraint. No confirmed downstream break was found "
+                "in the available evidence; the displayed evidence coverage still states how much metadata was verified."
+            )
+            rec_action = "Merge according to the deterministic policy and monitor the normal validation pipeline."
+            remediation_strat = "No downstream SQL remediation is required for this non-breaking schema change."
         else:
-            evidence_word = "verified" if bundle.integration_mode.value == "LIVE_DATAHUB" else "observed in the explicit demo scenario"
             exec_summary = (
                 f"Proposed change to dataset '{dataset_name}' modifies {len(bundle.changes.changes)} field(s), "
                 f"including breaking change(s) to {field_names}. Sentinel {evidence_word} {bundle.confirmed_consumers_count} "
                 f"confirmed downstream consumer(s) across DataHub lineage graph ({bundle.integration_mode.value})."
             )
-            why_matters = (
-                f"Altering column(s) {field_names} risks breaking downstream analytical models and dashboards "
-                f"that reference this field. Impacted {evidence_word} systems include Executive Dashboards and ML Feature Stores."
-            )
+            if confirmed:
+                confirmed_names = ", ".join(a.name for a in confirmed)
+                why_matters = f"Altering column(s) {field_names} risks breaking confirmed downstream consumers: {confirmed_names}."
+            else:
+                why_matters = (
+                    f"Altering column(s) {field_names} is breaking, but the available evidence did not confirm a downstream consumer."
+                )
             rec_action = (
                 f"Review affected downstream dbt models and dashboard field references before merging PR. "
                 f"Apply generated candidate remediation patch where semantic safety is validated."
@@ -107,7 +122,10 @@ class LLMReasoningEngine:
 
         return AIReasoningOutput(
             executive_summary=exec_summary,
-            proposed_change_summary=f"{bundle.changes.source.upper()}: Schema modification on '{dataset_name}' ({field_names})",
+            proposed_change_summary=(
+                f"{bundle.changes.source.upper()}: Schema modification on '{dataset_name}' "
+                f"({field_names if breaking else ', '.join(c.field for c in bundle.changes.changes) or 'no field changes'})"
+            ),
             why_it_matters=why_matters,
             affected_systems=affected_systems,
             recommended_action=rec_action,

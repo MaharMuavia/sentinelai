@@ -7,23 +7,35 @@ from app.db.database import SessionLocal
 from app.db.models import InvestigationDB
 from app.datahub.client import DataHubClient
 from app.datahub.mcp_client import DataHubMCPClient, MCPConnectionResult
+from app.github.client import GitHubClient
+from app.workflow.orchestrator import SentinelWorkflowOrchestrator
 
-client = TestClient(app)
+
+@pytest.fixture(scope="module")
+def client():
+    with TestClient(app) as test_client:
+        yield test_client
 
 
-def test_health_check():
+def test_health_check(client: TestClient):
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
 
 
-def test_readiness_check_verifies_database():
+def test_readiness_check_verifies_database(client: TestClient):
     response = client.get("/ready")
     assert response.status_code == 200
     assert response.json() == {"status": "ready", "database": "connected"}
 
 
-def test_integrations_status(monkeypatch):
+def test_missing_investigation_events_returns_404(client: TestClient):
+    response = client.get("/api/investigations/does-not-exist/events")
+
+    assert response.status_code == 404
+
+
+def test_integrations_status(client: TestClient, monkeypatch):
     monkeypatch.setenv("SENTINEL_DATA_MODE", "fixture")
     monkeypatch.setattr(DataHubClient, "check_connection", AsyncMock(return_value=False))
     monkeypatch.setattr(
@@ -31,6 +43,7 @@ def test_integrations_status(monkeypatch):
         "discover_tools",
         AsyncMock(return_value=MCPConnectionResult(connected=False)),
     )
+    monkeypatch.setattr(GitHubClient, "check_connection", AsyncMock(return_value=False))
     response = client.get("/api/integrations/status")
     assert response.status_code == 200
     data = response.json()
@@ -38,9 +51,10 @@ def test_integrations_status(monkeypatch):
     assert "llm" in data
     assert "github" in data
     assert data["datahub"]["mode"] in ("LIVE_DATAHUB", "DEMO_FIXTURE", "DATAHUB_UNAVAILABLE")
+    assert data["github"]["connected"] is False
 
 
-def test_analyze_change_api(monkeypatch):
+def test_analyze_change_api(client: TestClient, monkeypatch):
     monkeypatch.setenv("SENTINEL_DATA_MODE", "fixture")
     payload = {
         "before_schema": {
@@ -68,7 +82,54 @@ def test_analyze_change_api(monkeypatch):
     assert "evidence_completeness" in data
 
 
-def test_analysis_payload_cannot_self_approve(monkeypatch):
+def test_stream_reports_terminal_error(client: TestClient, monkeypatch):
+    async def failing_stream(*args, **kwargs):
+        if False:
+            yield None
+        raise RuntimeError("simulated workflow failure")
+
+    monkeypatch.setattr(
+        SentinelWorkflowOrchestrator,
+        "execute_investigation_streaming",
+        failing_stream,
+    )
+    payload = {
+        "before_schema": {
+            "dataset": {"urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,test,PROD)", "name": "test"},
+            "fields": [],
+        },
+        "after_schema": {
+            "dataset": {"urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,test,PROD)", "name": "test"},
+            "fields": [],
+        },
+    }
+
+    response = client.post("/api/changes/analyze/stream", json=payload)
+
+    assert response.status_code == 200
+    assert '"type": "ERROR"' in response.text
+    assert "Investigation failed before completion" in response.text
+
+
+def test_analysis_rejects_oversized_pr_url(client: TestClient):
+    payload = {
+        "before_schema": {
+            "dataset": {"urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,test,PROD)", "name": "test"},
+            "fields": [],
+        },
+        "after_schema": {
+            "dataset": {"urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,test,PROD)", "name": "test"},
+            "fields": [],
+        },
+        "pr_url": "https://github.com/example/repo/pull/" + ("1" * 2100),
+    }
+
+    response = client.post("/api/changes/analyze", json=payload)
+
+    assert response.status_code == 422
+
+
+def test_analysis_payload_cannot_self_approve(client: TestClient, monkeypatch):
     monkeypatch.setenv("SENTINEL_DATA_MODE", "fixture")
     payload = {
         "before_schema": {
@@ -91,13 +152,13 @@ def test_analysis_payload_cannot_self_approve(monkeypatch):
     assert {"START", "DIFF", "DATAHUB_CONTEXT", "IMPACT", "RISK", "REMEDIATION", "APPROVAL", "ACTION", "WRITEBACK", "COMPLETE"}.issubset(stages)
 
 
-def test_approval_endpoint_fails_closed_without_auth(monkeypatch):
+def test_approval_endpoint_fails_closed_without_auth(client: TestClient, monkeypatch):
     monkeypatch.delenv("SENTINEL_AUTH_TOKEN", raising=False)
     response = client.post("/api/investigations/missing/approve")
     assert response.status_code == 503
 
 
-def test_successful_writeback_is_idempotent(monkeypatch):
+def test_successful_writeback_is_idempotent(client: TestClient, monkeypatch):
     monkeypatch.setattr(settings, "AUTH_MODE", "static")
     monkeypatch.setattr(settings, "SENTINEL_AUTH_TOKEN", "test-token")
     investigation_id = "idempotent-writeback-test"
@@ -136,7 +197,7 @@ def test_successful_writeback_is_idempotent(monkeypatch):
     assert response.json()["document_urn"] == existing_result["document_urn"]
 
 
-def test_successful_github_action_is_idempotent(monkeypatch):
+def test_successful_github_action_is_idempotent(client: TestClient, monkeypatch):
     monkeypatch.setattr(settings, "AUTH_MODE", "static")
     monkeypatch.setattr(settings, "SENTINEL_AUTH_TOKEN", "test-token")
     investigation_id = "idempotent-github-test"
@@ -172,3 +233,34 @@ def test_successful_github_action_is_idempotent(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["url"] == existing_result["url"]
+
+
+def test_github_action_requires_persisted_approval(client: TestClient, monkeypatch):
+    monkeypatch.setattr(settings, "AUTH_MODE", "static")
+    monkeypatch.setattr(settings, "SENTINEL_AUTH_TOKEN", "test-token")
+    investigation_id = "unapproved-github-test"
+    with SessionLocal() as db:
+        db.merge(InvestigationDB(
+            id=investigation_id,
+            dataset_urn="urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
+            pr_url="https://github.com/example/repo/pull/1",
+            severity="HIGH",
+            recommendation="BLOCK",
+            evidence_completeness=100,
+            approval_status="AWAITING_APPROVAL",
+            datahub_writeback_status="AWAITING_APPROVAL",
+            github_action_status="AWAITING_APPROVAL",
+            schema_change_json={},
+            evidence_graph_json={},
+            ai_explanation_json={},
+        ))
+        db.commit()
+
+    response = client.post(
+        f"/api/investigations/{investigation_id}/github/comment",
+        headers={"Authorization": "Bearer test-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "AWAITING_APPROVAL"
+    assert response.json()["success"] is False
