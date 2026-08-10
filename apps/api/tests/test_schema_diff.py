@@ -59,3 +59,21 @@ def test_schema_diff_explicit_rename():
     assert changeset.changes[0].change_type == ChangeType.COLUMN_RENAMED
     assert changeset.changes[0].field == "email"
     assert changeset.changes[0].proposed_state["name"] == "user_email"
+
+
+def test_schema_diff_type_compatibility_matrix():
+    assert SchemaDiffEngine.is_type_compatible("NUMBER(10,2)", "NUMBER(18,4)")
+    assert not SchemaDiffEngine.is_type_compatible("NUMBER(18,4)", "NUMBER(10,2)")
+    assert SchemaDiffEngine.is_type_compatible("VARCHAR(32)", "VARCHAR(128)")
+    assert not SchemaDiffEngine.is_type_compatible("VARCHAR(128)", "VARCHAR(32)")
+    assert not SchemaDiffEngine.is_type_compatible("VARCHAR", "TIMESTAMP")
+
+
+def test_invalid_explicit_rename_fails_closed():
+    before = SchemaSnapshot(
+        dataset=DatasetIdentifier(urn="urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)", name="raw_customers"),
+        fields=[SchemaField(name="email", type="STRING")],
+    )
+    after = before.model_copy(deep=True)
+    with pytest.raises(ValueError, match="rename target"):
+        SchemaDiffEngine.diff(before, after, explicit_renames={"email": "missing"})

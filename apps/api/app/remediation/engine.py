@@ -97,6 +97,14 @@ class SQLRemediationEngine:
         # 2. Check for semantic predicate usage (WHERE, JOIN, HAVING, GROUP BY, ORDER BY, CASE, QUALIFY, WINDOW)
         semantic_violations: List[str] = []
 
+        table_count = len(list(expression.find_all(exp.Table)))
+        if table_count > 1:
+            for column in expression.find_all(exp.Column):
+                if not column.table and column.name.lower() in {name.lower() for name in renamed_columns}:
+                    semantic_violations.append(
+                        f"Renamed column '{column.name}' is unqualified in a multi-table query; relation ownership is ambiguous."
+                    )
+
         for node in expression.walk():
             # Check WHERE clause
             if isinstance(node, exp.Where):
@@ -139,6 +147,18 @@ class SQLRemediationEngine:
                 for r in removed_columns:
                     if r.lower() in cols:
                         semantic_violations.append(f"Removed column '{r}' is referenced in a CASE expression.")
+
+            elif isinstance(node, exp.Qualify):
+                cols = [c.name.lower() for c in node.find_all(exp.Column)]
+                for r in removed_columns:
+                    if r.lower() in cols:
+                        semantic_violations.append(f"Removed column '{r}' is referenced in a QUALIFY clause.")
+
+            elif isinstance(node, exp.Window):
+                cols = [c.name.lower() for c in node.find_all(exp.Column)]
+                for r in removed_columns:
+                    if r.lower() in cols:
+                        semantic_violations.append(f"Removed column '{r}' is referenced in a window expression.")
 
         # If semantic violations exist, refuse automatic remediation approval
         if semantic_violations:

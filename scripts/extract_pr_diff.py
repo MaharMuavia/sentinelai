@@ -13,8 +13,10 @@ import argparse
 import subprocess
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 # Add apps/api to path for schema engine imports
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "apps", "api")))
+sys.path.insert(0, str(REPO_ROOT / "apps" / "api"))
 
 from app.schema_engine.parser import DDLParser
 from app.schema_engine.diff import SchemaDiffEngine, SchemaSnapshot, DatasetIdentifier, SchemaField
@@ -27,7 +29,8 @@ def get_git_file_at_commit(commit_sha: str, file_path: str) -> str:
             ["git", "show", f"{commit_sha}:{file_path}"],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
+            cwd=REPO_ROOT,
         )
         return res.stdout
     except Exception as e:
@@ -37,7 +40,7 @@ def get_git_file_at_commit(commit_sha: str, file_path: str) -> str:
 
 def load_sentinel_config() -> dict:
     """Load dataset URN repository mapping from sentinel_config.json."""
-    config_path = Path("sentinel_config.json")
+    config_path = REPO_ROOT / "sentinel_config.json"
     if config_path.exists():
         try:
             return json.loads(config_path.read_text(encoding="utf-8"))
@@ -53,7 +56,8 @@ def extract_git_changed_files(base_sha: str, head_sha: str) -> list:
             ["git", "diff", "--name-only", f"{base_sha}...{head_sha}"],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
+            cwd=REPO_ROOT,
         )
         return [f.strip() for f in res.stdout.splitlines() if f.strip()]
     except Exception as e:
@@ -71,10 +75,15 @@ def main():
     args = parser.parse_args()
 
     out_path = Path(args.output)
+    if not out_path.is_absolute():
+        out_path = REPO_ROOT / out_path
+    out_path.parent.mkdir(parents=True, exist_ok=True)
 
     # 1. Handle Explicit Local Fixture Mode (Only when explicitly passed via --fixture)
     if args.fixture:
         fixture_path = Path(args.fixture)
+        if not fixture_path.is_absolute():
+            fixture_path = REPO_ROOT / fixture_path
         if not fixture_path.exists():
             print(f"[Sentinel AI] Error: Specified fixture file '{args.fixture}' does not exist.")
             sys.exit(1)
@@ -125,7 +134,7 @@ def main():
             "error": f"No mapped dataset for changed files: {changed_files}"
         }
         out_path.write_text(json.dumps(diff_payload, indent=2), encoding="utf-8")
-        sys.exit(0)
+        sys.exit(1)
 
     # Fetch file content at BASE and HEAD
     base_content = get_git_file_at_commit(base_sha, mapped_file)
@@ -151,7 +160,7 @@ def main():
         diff_payload = {
             "pr_number": pr_num,
             "status": "UNSUPPORTED_CHANGE",
-            "error": f"DDL parse error: {before_parse.error_message or after_parse.error_message}"
+            "error": f"DDL parse error: {before_parse.error or after_parse.error}"
         }
         out_path.write_text(json.dumps(diff_payload, indent=2), encoding="utf-8")
         sys.exit(1)

@@ -1,15 +1,15 @@
-import os
 import json
-import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, HTTPException, Header, Query
+from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 from app.config import settings
+from app.auth import MutationPrincipal, require_mutation_authorization
 from app.db.database import get_db, init_db
 from app.db.models import InvestigationDB, AuditEventDB
 from app.schema_engine.diff import SchemaSnapshot, DatasetIdentifier, SchemaField
@@ -22,7 +22,7 @@ from app.workflow.orchestrator import SentinelWorkflowOrchestrator, WorkflowProg
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize SQLite database tables on startup
+    # Initialize database tables on startup for the selected SQLAlchemy backend.
     init_db()
     yield
 
@@ -35,11 +35,7 @@ app = FastAPI(
 )
 
 # Configurable CORS middleware for Next.js frontend
-allowed_origins = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:8000"
-]
+allowed_origins = [origin.strip() for origin in settings.CORS_ALLOWED_ORIGINS.split(",") if origin.strip()]
 
 app.add_middleware(
     CORSMiddleware,
@@ -50,32 +46,31 @@ app.add_middleware(
 )
 
 
-def verify_api_authorization(authorization: Optional[str] = Header(None)):
-    """Validate API authorization token if SENTINEL_AUTH_TOKEN is configured."""
-    expected_token = getattr(settings, "SENTINEL_AUTH_TOKEN", None) or os.getenv("SENTINEL_AUTH_TOKEN")
-    if expected_token:
-        if not authorization or not authorization.startswith("Bearer ") or authorization.split(" ")[1] != expected_token:
-            raise HTTPException(status_code=401, detail="Unauthorized: Invalid or missing authorization token.")
-
-
 class AnalyzeChangeRequest(BaseModel):
     before_schema: SchemaSnapshot
     after_schema: SchemaSnapshot
     pr_url: Optional[str] = Field(None, description="GitHub Pull Request URL")
     downstream_sql: Optional[str] = Field(None, description="Downstream model SQL query for remediation verification")
-    is_approved: bool = Field(False, description="Explicit human approval for external mutations")
 
 
 class AnalyzeDDLRequest(BaseModel):
     ddl_statement: str
-    dataset_urn: Optional[str] = "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)"
+    dataset_urn: str
     pr_url: Optional[str] = None
-    is_approved: bool = False
 
 
 @app.get("/health")
 def health_check():
     return {"status": "ok", "app": "Sentinel AI", "version": "1.0.0"}
+
+
+@app.get("/ready")
+def readiness_check(db: Session = Depends(get_db)):
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Database is unavailable") from exc
+    return {"status": "ready", "database": "connected"}
 
 
 @app.get("/api/integrations/status")
@@ -85,6 +80,7 @@ async def integrations_status():
 
     dh_connected = await dh_client.check_connection()
     dh_mode = await dh_client.get_integration_mode(allow_fixture_fallback=False)
+    tool_discovery = await dh_client.mcp_client.discover_tools()
 
     llm_connected = bool(settings.OPENAI_API_KEY)
     llm_mode = f"OpenAI ({settings.AGENT_MODEL})" if llm_connected else "DETERMINISTIC_FALLBACK"
@@ -97,7 +93,8 @@ async def integrations_status():
             "name": "DataHub GMS / MCP",
             "url": settings.DATAHUB_GMS_URL,
             "connected": dh_connected,
-            "mode": dh_mode.value
+            "mode": dh_mode.value,
+            "discovered_tools": tool_discovery.tools if tool_discovery.connected else [],
         },
         "llm": {
             "name": "AI Reasoning Engine",
@@ -121,8 +118,7 @@ async def analyze_change(req: AnalyzeChangeRequest, db: Session = Depends(get_db
         before_schema=req.before_schema,
         after_schema=req.after_schema,
         pr_url=req.pr_url,
-        downstream_sql=req.downstream_sql,
-        is_approved=req.is_approved
+        downstream_sql=req.downstream_sql
     )
     return result
 
@@ -136,8 +132,7 @@ async def analyze_change_stream(req: AnalyzeChangeRequest, db: Session = Depends
             before_schema=req.before_schema,
             after_schema=req.after_schema,
             pr_url=req.pr_url,
-            downstream_sql=req.downstream_sql,
-            is_approved=req.is_approved
+            downstream_sql=req.downstream_sql
         ):
             if isinstance(item, WorkflowProgressEvent):
                 yield f"data: {item.model_dump_json()}\n\n"
@@ -157,11 +152,13 @@ async def analyze_change_stream(req: AnalyzeChangeRequest, db: Session = Depends
 
 @app.post("/api/changes/analyze/ddl")
 async def analyze_ddl(req: AnalyzeDDLRequest, db: Session = Depends(get_db)):
-    dataset_urn = req.dataset_urn or "urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)"
+    dataset_urn = req.dataset_urn
 
     # Attempt to load current base schema from DataHub if available
     dh_client = DataHubClient()
-    base_meta = await dh_client.get_dataset(dataset_urn, allow_fixture_fallback=True)
+    base_meta = await dh_client.get_dataset(dataset_urn, allow_fixture_fallback=False)
+    if not base_meta or not base_meta.fields:
+        raise HTTPException(status_code=503, detail="Current DataHub schema is unavailable; DDL analysis is fail-closed")
 
     base_snapshot = None
     if base_meta and base_meta.fields:
@@ -187,8 +184,7 @@ async def analyze_ddl(req: AnalyzeDDLRequest, db: Session = Depends(get_db)):
     result = await orchestrator.execute_investigation(
         before_schema=parse_result.before_snapshot,
         after_schema=parse_result.after_snapshot,
-        pr_url=req.pr_url,
-        is_approved=req.is_approved
+        pr_url=req.pr_url
     )
     return result
 
@@ -210,6 +206,9 @@ def list_investigations(db: Session = Depends(get_db)):
             "potential_consumers_count": r.potential_consumers_count,
             "datahub_writeback_status": r.datahub_writeback_status,
             "github_action_status": r.github_action_status,
+            "approval_status": r.approval_status,
+            "integration_mode": r.integration_mode,
+            "evidence_trust": r.evidence_trust,
             "created_at": r.created_at.isoformat() if r.created_at else None
         })
     return out
@@ -220,10 +219,6 @@ def get_investigation(investigation_id: str, db: Session = Depends(get_db)):
     rec = db.query(InvestigationDB).filter(InvestigationDB.id == investigation_id).first()
     if not rec:
         raise HTTPException(status_code=404, detail=f"Investigation record '{investigation_id}' not found")
-
-    risk_assessment = None
-    if rec.evidence_graph_json and isinstance(rec.evidence_graph_json, dict):
-        risk_assessment = rec.evidence_graph_json.get("risk_assessment")
 
     return {
         "id": rec.id,
@@ -236,10 +231,15 @@ def get_investigation(investigation_id: str, db: Session = Depends(get_db)):
         "potential_consumers_count": rec.potential_consumers_count,
         "datahub_writeback_status": rec.datahub_writeback_status,
         "github_action_status": rec.github_action_status,
+        "approval_status": rec.approval_status,
+        "approved_at": rec.approved_at.isoformat() if rec.approved_at else None,
+        "approved_by": rec.approved_by,
+        "integration_mode": rec.integration_mode,
+        "evidence_trust": rec.evidence_trust,
         "created_at": rec.created_at.isoformat() if rec.created_at else None,
         "changes": rec.schema_change_json,
         "evidence_bundle": rec.evidence_graph_json,
-        "risk_assessment": risk_assessment,
+        "risk_assessment": rec.risk_assessment_json,
         "ai_explanation": rec.ai_explanation_json,
         "remediation": rec.remediation_json
     }
@@ -262,12 +262,23 @@ def get_investigation_events(investigation_id: str, db: Session = Depends(get_db
 async def trigger_writeback(
     investigation_id: str,
     db: Session = Depends(get_db),
-    auth: None = Depends(verify_api_authorization)
+    principal: MutationPrincipal = Depends(require_mutation_authorization)
 ):
     rec = db.query(InvestigationDB).filter(InvestigationDB.id == investigation_id).first()
     if not rec:
         raise HTTPException(status_code=404, detail=f"Investigation record '{investigation_id}' not found")
 
+    if rec.approval_status != "APPROVED":
+        return {
+            "status": WritebackStatus.AWAITING_APPROVAL.value,
+            "success": False,
+            "executed": False,
+            "target_urn": rec.dataset_urn,
+            "message": "Persisted approval is required before DataHub mutation",
+        }
+    if rec.datahub_writeback_status == WritebackStatus.SUCCESS.value and rec.writeback_result_json:
+        return rec.writeback_result_json
+    assets = (rec.evidence_graph_json or {}).get("classified_assets", [])
     wb = DataHubWritebackEngine()
     res = await wb.writeback_investigation(
         investigation_id=rec.id,
@@ -275,16 +286,18 @@ async def trigger_writeback(
         severity=rec.severity,
         recommendation=rec.recommendation,
         evidence_completeness=rec.evidence_completeness,
-        evidence_trust="LIVE DATAHUB MCP" if rec.datahub_writeback_status == "SUCCESS" else "DEMO FIXTURE",
-        confirmed_consumers=["customer_360", "marketing_dashboard"],
-        potential_consumers=[],
+        evidence_trust=rec.evidence_trust or "DATAHUB UNAVAILABLE",
+        confirmed_consumers=[a.get("name", a.get("asset_urn", "unknown")) for a in assets if a.get("classification") == "CONFIRMED_IMPACT"],
+        potential_consumers=[a.get("name", a.get("asset_urn", "unknown")) for a in assets if a.get("classification") == "POTENTIAL_IMPACT"],
         summary=rec.ai_explanation_json.get("executive_summary", "Sentinel pre-merge investigation") if rec.ai_explanation_json else "Sentinel pre-merge investigation",
         remediation_status=rec.remediation_json.get("validation", {}).get("status") if rec.remediation_json else None,
         pr_url=rec.pr_url,
-        is_approved=True
+        approval_granted=True,
     )
 
     rec.datahub_writeback_status = res.status.value
+    rec.writeback_result_json = res.model_dump()
+    db.add(AuditEventDB(investigation_id=rec.id, stage="WRITEBACK", status=res.status.value, message=res.message, details_json=res.model_dump()))
     db.commit()
 
     if not res.success and res.status not in (WritebackStatus.DISABLED, WritebackStatus.DRY_RUN):
@@ -300,7 +313,7 @@ async def trigger_writeback(
 async def trigger_github_comment(
     investigation_id: str,
     db: Session = Depends(get_db),
-    auth: None = Depends(verify_api_authorization)
+    principal: MutationPrincipal = Depends(require_mutation_authorization)
 ):
     rec = db.query(InvestigationDB).filter(InvestigationDB.id == investigation_id).first()
     if not rec:
@@ -309,23 +322,28 @@ async def trigger_github_comment(
     if not rec.pr_url:
         raise HTTPException(status_code=400, detail="No PR URL associated with this investigation record.")
 
+    if rec.github_action_status == GitHubActionStatus.SUCCESS.value and rec.github_result_json:
+        return rec.github_result_json
+
     gh = GitHubClient()
     res = await gh.post_pr_comment(
         pr_url=rec.pr_url,
         severity=rec.severity,
         recommendation=rec.recommendation,
         evidence_completeness=rec.evidence_completeness,
-        evidence_trust="LIVE DATAHUB MCP",
+        evidence_trust=rec.evidence_trust or "DATAHUB UNAVAILABLE",
         proposed_change=rec.schema_change_json.get("changes", [{}])[0].get("details", "Schema modification") if rec.schema_change_json else "Schema modification",
         confirmed_consumers_count=rec.confirmed_consumers_count,
-        critical_paths=[f"{rec.dataset_urn} → downstream models"],
+        critical_paths=[f"{edge.get('source')} -> {edge.get('target')}" for edge in (rec.evidence_graph_json or {}).get("graph", {}).get("edges", [])],
         recommended_action=rec.ai_explanation_json.get("recommended_action", "Review downstream model impact") if rec.ai_explanation_json else "Review impact",
         remediation_diff=rec.remediation_json.get("unified_diff") if rec.remediation_json else None,
         investigation_id=rec.id,
-        is_approved=True
+        approval_granted=True,
     )
 
     rec.github_action_status = res.status.value
+    rec.github_result_json = res.model_dump()
+    db.add(AuditEventDB(investigation_id=rec.id, stage="ACTION", status=res.status.value, message=res.message, details_json=res.model_dump()))
     db.commit()
 
     if not res.success and res.status not in (GitHubActionStatus.DISABLED, GitHubActionStatus.DRY_RUN):
@@ -335,3 +353,35 @@ async def trigger_github_comment(
         )
 
     return res
+
+
+@app.post("/api/investigations/{investigation_id}/approve")
+def approve_investigation(
+    investigation_id: str,
+    db: Session = Depends(get_db),
+    principal: MutationPrincipal = Depends(require_mutation_authorization),
+):
+    rec = db.query(InvestigationDB).filter(InvestigationDB.id == investigation_id).first()
+    if not rec:
+        raise HTTPException(status_code=404, detail=f"Investigation record '{investigation_id}' not found")
+    if rec.approval_status == "APPROVED":
+        return {
+            "status": "APPROVED",
+            "approved_at": rec.approved_at.isoformat() if rec.approved_at else None,
+            "approved_by": rec.approved_by,
+        }
+    if rec.approval_status not in ("AWAITING_APPROVAL", "NOT_REQUIRED"):
+        raise HTTPException(status_code=409, detail=f"Investigation is not approvable from state {rec.approval_status}")
+    from datetime import datetime, timezone
+    rec.approval_status = "APPROVED"
+    rec.approved_at = datetime.now(timezone.utc)
+    rec.approved_by = principal.subject
+    db.add(AuditEventDB(
+        investigation_id=rec.id,
+        stage="APPROVAL",
+        status="APPROVED",
+        message="External action approved by authenticated server request",
+        details_json={"approved_by": rec.approved_by, "approved_at": rec.approved_at.isoformat()},
+    ))
+    db.commit()
+    return {"status": rec.approval_status, "approved_at": rec.approved_at.isoformat(), "approved_by": rec.approved_by}

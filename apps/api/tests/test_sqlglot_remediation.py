@@ -54,3 +54,16 @@ def test_remediation_simple_projection_removal():
     assert artifact.validation.status == RemediationStatus.STRUCTURALLY_VALID
     assert artifact.validation.is_valid is True
     assert "email" not in artifact.remediated_sql.lower()
+
+
+def test_remediation_qualify_and_window_references_require_human():
+    changes = ChangeSet(
+        dataset_urn="urn:li:dataset:(urn:li:dataPlatform:snowflake,raw_customers,PROD)",
+        changes=[SchemaChange(field="email", change_type=ChangeType.COLUMN_REMOVED, is_breaking=True, details="removed")],
+    )
+    for sql in (
+        "SELECT customer_id FROM customer_360 QUALIFY ROW_NUMBER() OVER (PARTITION BY email ORDER BY created_at) = 1",
+        "SELECT ROW_NUMBER() OVER (PARTITION BY email ORDER BY created_at) AS rn FROM customer_360",
+    ):
+        result = SQLRemediationEngine.remediate_dbt_model("model.sql", sql, changes)
+        assert result.validation.status == RemediationStatus.REQUIRES_HUMAN

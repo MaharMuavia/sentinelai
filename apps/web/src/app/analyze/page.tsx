@@ -2,7 +2,13 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { GitPullRequest, Play, CheckCircle2, Loader2, Sparkles, AlertTriangle, Settings2, Code, ArrowRight } from "lucide-react";
+import { GitPullRequest, Play, CheckCircle2, Loader2, Sparkles, AlertTriangle, Code } from "lucide-react";
+
+interface WorkflowStreamPayload {
+  type?: string;
+  stage?: string;
+  data?: { investigation_id?: string };
+}
 
 const WORKFLOW_STAGES = [
   { id: "RECEIVE_CHANGE", label: "Receive Change Payload", desc: "Ingest proposed schema diff" },
@@ -79,7 +85,7 @@ export default function AnalyzePage() {
   const router = useRouter();
   const [beforeJson, setBeforeJson] = useState(JSON.stringify(PRESETS.COLUMN_REMOVED.before, null, 2));
   const [afterJson, setAfterJson] = useState(JSON.stringify(PRESETS.COLUMN_REMOVED.after, null, 2));
-  const [prUrl, setPrUrl] = useState("https://github.com/acme/data-platform/pull/42");
+  const [prUrl, setPrUrl] = useState("");
   
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [currentStageIdx, setCurrentStageIdx] = useState<number>(-1);
@@ -130,15 +136,17 @@ export default function AnalyzePage() {
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             try {
-              const payload = JSON.parse(line.slice(6));
+              const payload = JSON.parse(line.slice(6)) as WorkflowStreamPayload;
               if (payload.type === 'RESULT') {
-                investigationId = payload.data.investigation_id;
+                investigationId = payload.data?.investigation_id ?? '';
                 setCurrentStageIdx(WORKFLOW_STAGES.length - 1);
               } else if (payload.stage) {
                 const stageIdx = WORKFLOW_STAGES.findIndex(s => s.id === payload.stage);
                 if (stageIdx >= 0) setCurrentStageIdx(stageIdx);
               }
-            } catch {}
+            } catch (error: unknown) {
+              console.warn("Ignored malformed workflow event", error);
+            }
           }
         }
       }
@@ -146,9 +154,9 @@ export default function AnalyzePage() {
       if (investigationId) {
         setTimeout(() => router.push(`/investigations/${investigationId}`), 600);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      setErrorMsg(err.message || 'Failed to analyze change payload.');
+      setErrorMsg(err instanceof Error ? err.message : 'Failed to analyze change payload.');
       setIsAnalyzing(false);
     }
   };

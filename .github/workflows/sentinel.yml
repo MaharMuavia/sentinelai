@@ -5,10 +5,8 @@ on:
     branches:
       - main
     paths:
-      - 'models/**'
-      - 'dbt/**'
-      - '**/*.sql'
-      - 'apps/api/**'
+      - 'examples/demo-repository/schemas/**'
+      - 'sentinel_config.json'
 
 permissions:
   contents: read
@@ -28,9 +26,7 @@ jobs:
         run: |
           pip install -r apps/api/requirements.txt
       - name: Run Pytest Test Suite
-        run: |
-          cd apps/api
-          python -m pytest tests/
+        run: python -m pytest apps/api/tests/ -v
 
   frontend-build:
     name: Frontend Build Verification
@@ -41,11 +37,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - name: Install Frontend Dependencies
+        run: npm ci --prefix apps/web
+      - name: Lint Next.js Application
+        run: npm run lint --prefix apps/web
       - name: Build Next.js Application
         run: |
-          cd apps/web
-          npm ci
-          npm run build
+          npm run build --prefix apps/web
 
   sentinel-firewall:
     name: Sentinel AI Change Impact Firewall
@@ -72,6 +70,8 @@ jobs:
         env:
           DATAHUB_GMS_URL: ${{ secrets.DATAHUB_GMS_URL }}
           DATAHUB_GMS_TOKEN: ${{ secrets.DATAHUB_GMS_TOKEN }}
+          DATAHUB_MCP_ENDPOINT: ${{ secrets.DATAHUB_MCP_ENDPOINT }}
+          SENTINEL_DATA_MODE: live
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

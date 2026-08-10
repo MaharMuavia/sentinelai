@@ -47,7 +47,7 @@ class RiskEngine:
     """
     Deterministic Pre-Merge Risk Assessment Engine.
     Computes severity, verdict, evidence completeness, and evidence trust.
-    Ensures Sentinel NEVER claims 100% verified when evidence is missing or DataHub is unavailable.
+    Ensures Sentinel never claims complete verification when evidence is missing or DataHub is unavailable.
     """
 
     @staticmethod
@@ -68,7 +68,7 @@ class RiskEngine:
             trust_label = "DATAHUB UNAVAILABLE"
 
         # 1. Integration & Evidence Availability Check
-        if bundle.integration_mode == IntegrationMode.DATAHUB_UNAVAILABLE or not bundle.has_sufficient_evidence:
+        if bundle.integration_mode == IntegrationMode.DATAHUB_UNAVAILABLE or bundle.has_sufficient_evidence is False:
             signals = [
                 CompletenessSignal(
                     signal_name="SCHEMA_VERIFIED",
@@ -134,10 +134,9 @@ class RiskEngine:
             )
 
         # 2. Check for critical business assets
+        critical_tags = {"Executive_Tier", "Critical_Dashboard", "Critical_Model"}
         has_critical_assets = any(
-            "Executive_Tier" in a.tags
-            or "Critical_Dashboard" in a.tags
-            or "Critical_Model" in a.tags
+            any(tag.rsplit(":", 1)[-1] in critical_tags for tag in a.tags)
             or a.asset_type in ("DASHBOARD", "ML_MODEL")
             for a in confirmed_consumers
         )
@@ -190,53 +189,46 @@ class RiskEngine:
             ))
 
         # 3. Calculate Evidence Completeness strictly from verified signals
-        schema_verified = bool(bundle.dataset_urn and (len(bundle.classified_assets) > 0 or bundle.has_sufficient_evidence))
-
-        column_lineage_present = any(
-            len(a.evidence) > 0 and any(e.type == "COLUMN_LINEAGE" for e in a.evidence)
-            for a in bundle.classified_assets
+        schema_verified = bundle.schema_verified if bundle.schema_verified is not None else False
+        column_lineage_present = bundle.column_lineage_available if bundle.column_lineage_available is not None else any(
+            any(e.type == "COLUMN_LINEAGE" for e in asset.evidence) for asset in bundle.classified_assets
         )
-        query_usage_present = any(
-            len(a.evidence) > 0 and any(e.type == "QUERY_USAGE" for e in a.evidence)
-            for a in bundle.classified_assets
+        query_usage_present = bundle.query_usage_available if bundle.query_usage_available is not None else any(
+            any(e.type == "QUERY_USAGE" for e in asset.evidence) for asset in bundle.classified_assets
         )
-        ownership_present = len(bundle.classified_assets) > 0 and all(
-            len(a.owners) > 0 for a in bundle.classified_assets
-        )
-        exact_path_verified = len(bundle.graph.edges) > 0 and all(
-            e.lineage_type == "FIELD_LEVEL" for e in bundle.graph.edges if e.source != bundle.dataset_urn
-        ) if bundle.graph.edges else False
+        ownership_present = bundle.ownership_assigned if bundle.ownership_assigned is not None else bool(bundle.classified_assets) and all(bool(a.owners) for a in bundle.classified_assets)
+        exact_path_verified = bundle.exact_lineage_path_verified if bundle.exact_lineage_path_verified is not None else False
 
         signals: List[CompletenessSignal] = [
             CompletenessSignal(
                 signal_name="SCHEMA_VERIFIED",
                 is_present=schema_verified,
                 weight=25.0,
-                description=f"Current schema snapshot verified against DataHub ({trust_label})"
+                description="Schema metadata was retrieved and parsed successfully"
             ),
             CompletenessSignal(
                 signal_name="COLUMN_LINEAGE_AVAILABLE",
                 is_present=column_lineage_present,
                 weight=25.0,
-                description="Fine-grained column-level lineage verified across downstream models"
+                description="A valid column lineage result was returned"
             ),
             CompletenessSignal(
                 signal_name="QUERY_USAGE_HISTORY",
                 is_present=query_usage_present,
                 weight=20.0,
-                description="Query execution log history inspected for exact column references"
+                description="Query usage records were retrieved; absent records remain unknown"
             ),
             CompletenessSignal(
                 signal_name="OWNERSHIP_ASSIGNED",
                 is_present=ownership_present,
                 weight=15.0,
-                description="Technical and business owners identified for all affected assets"
+                description="Ownership metadata was retrieved for the affected assets"
             ),
             CompletenessSignal(
                 signal_name="EXACT_LINEAGE_PATH_VERIFIED",
                 is_present=exact_path_verified,
                 weight=15.0,
-                description="Multi-hop lineage paths fully traced from root dataset to end consumers"
+                description="get_lineage_paths_between returned a matching path"
             )
         ]
 

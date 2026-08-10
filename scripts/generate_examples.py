@@ -10,6 +10,8 @@ import json
 import asyncio
 from pathlib import Path
 
+os.environ["SENTINEL_DATA_MODE"] = "fixture"
+
 # Add apps/api to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "apps", "api")))
 
@@ -46,11 +48,11 @@ async def generate_examples():
     res_critical = await orchestrator.execute_investigation(
         before_schema=critical_before,
         after_schema=critical_after,
-        pr_url="https://github.com/acme/data-platform/pull/42",
+        pr_url="https://github.com/MaharMuavia/sentinelai/pull/1",
         downstream_sql="SELECT customer_id, email, lifetime_value FROM customer_360 WHERE email IS NOT NULL;"
     )
 
-    crit_dir = Path("examples/critical-schema-removal")
+    crit_dir = Path(__file__).resolve().parents[1] / "examples" / "critical-schema-removal"
     crit_dir.mkdir(parents=True, exist_ok=True)
 
     input_payload = {
@@ -111,11 +113,11 @@ async def generate_examples():
     res_safe = await orchestrator.execute_investigation(
         before_schema=safe_before,
         after_schema=safe_after,
-        pr_url="https://github.com/acme/data-platform/pull/88",
+        pr_url="https://github.com/MaharMuavia/sentinelai/pull/2",
         downstream_sql="SELECT customer_id, email FROM customer_360;"
     )
 
-    safe_dir = Path("examples/safe-additive-change")
+    safe_dir = Path(__file__).resolve().parents[1] / "examples" / "safe-additive-change"
     safe_dir.mkdir(parents=True, exist_ok=True)
 
     safe_input_payload = {
@@ -130,7 +132,7 @@ async def generate_examples():
     (safe_dir / "validation.json").write_text(json.dumps(res_safe.remediation.validation.model_dump() if res_safe.remediation else {}, indent=2), encoding="utf-8")
     (safe_dir / "remediation.patch").write_text("", encoding="utf-8")
     (safe_dir / "github-comment.md").write_text(f"## Sentinel AI Analysis: SAFE_TO_MERGE\nSeverity: LOW\nNon-breaking additive column addition.", encoding="utf-8")
-    (safe_dir / "investigation.md").write_text(f"# Sentinel AI Investigation Report ({res_safe.investigation_id})\nSafe additive change verified.", encoding="utf-8")
+    (safe_dir / "investigation.md").write_text(f"# Sentinel AI Investigation Report ({res_safe.investigation_id})\nSafe additive change scenario coverage - not live verified.", encoding="utf-8")
 
     db.close()
     print("Example artifacts successfully generated!")

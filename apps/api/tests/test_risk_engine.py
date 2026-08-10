@@ -28,9 +28,9 @@ def test_assess_risk_breaking_critical_asset():
                 asset_urn="urn:li:dataset:(urn:li:dataPlatform:looker,marketing_dashboard,PROD)",
                 name="marketing_dashboard",
                 platform="looker",
-                asset_type="DASHBOARD",
+                asset_type="DATASET",
                 classification=ImpactClassification.CONFIRMED_IMPACT,
-                tags=["Executive_Tier", "Critical_Dashboard"],
+                tags=["urn:li:tag:Executive_Tier", "urn:li:tag:Critical_Dashboard"],
                 owners=["sarah.chen@company.com"],
                 evidence=[
                     EvidenceItem(id="e1", type=EvidenceType.COLUMN_LINEAGE, description="Verified field lineage")

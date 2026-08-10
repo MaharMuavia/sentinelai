@@ -2,25 +2,38 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { ShieldAlert, CheckCircle, Database, GitPullRequest, ArrowLeft, Check, Loader2, Clock, Sparkles, Layers } from "lucide-react";
+import { ShieldAlert, Database, GitPullRequest, ArrowLeft, Check, Loader2, Clock } from "lucide-react";
 import Link from "next/link";
-import { fetchInvestigation, fetchInvestigationEvents, triggerWriteback, triggerGitHubComment, InvestigationDetail } from "@/lib/api";
+import { approveInvestigation, fetchInvestigation, fetchInvestigationEvents, triggerWriteback, triggerGitHubComment, InvestigationDetail, InvestigationEvent } from "@/lib/api";
 import { ImpactGraph } from "@/components/ImpactGraph";
 import { EvidenceLedger } from "@/components/EvidenceLedger";
 import { DiffViewer } from "@/components/DiffViewer";
 
+type InvestigationTab = "overview" | "graph" | "evidence" | "remediation" | "timeline";
+
+const INVESTIGATION_TABS: Array<{ id: InvestigationTab; label: string }> = [
+  { id: "overview", label: "Executive AI Summary" },
+  { id: "graph", label: "Blast-Radius Lineage Graph" },
+  { id: "evidence", label: "Evidence Ledger" },
+  { id: "remediation", label: "SQLGlot Patch Diff" },
+  { id: "timeline", label: "Audit Timeline" },
+];
+
 export default function InvestigationDetailPage() {
   const { id } = useParams() as { id: string };
   const [data, setData] = useState<InvestigationDetail | null>(null);
-  const [events, setEvents] = useState<any[]>([]);
+  const [events, setEvents] = useState<InvestigationEvent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"overview" | "graph" | "evidence" | "remediation" | "timeline">("overview");
+  const [activeTab, setActiveTab] = useState<InvestigationTab>("overview");
 
   const [writebackLoading, setWritebackLoading] = useState(false);
   const [writebackDone, setWritebackDone] = useState(false);
 
   const [githubLoading, setGithubLoading] = useState(false);
   const [githubDone, setGithubDone] = useState(false);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [authToken, setAuthToken] = useState("");
+  const [approvalLoading, setApprovalLoading] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -40,10 +53,12 @@ export default function InvestigationDetailPage() {
   const handleWriteback = async () => {
     setWritebackLoading(true);
     try {
-      await triggerWriteback(id);
-      setWritebackDone(true);
+      const result = await triggerWriteback(id, authToken);
+      setWritebackDone(Boolean(result.success));
+      setActionMessage(result.message || result.status);
     } catch (e) {
       console.error(e);
+      setActionMessage(e instanceof Error ? e.message : "DataHub writeback failed");
     } finally {
       setWritebackLoading(false);
     }
@@ -52,12 +67,29 @@ export default function InvestigationDetailPage() {
   const handleGitHubComment = async () => {
     setGithubLoading(true);
     try {
-      await triggerGitHubComment(id);
-      setGithubDone(true);
+      const result = await triggerGitHubComment(id, authToken);
+      setGithubDone(Boolean(result.success));
+      setActionMessage(result.message || result.status);
     } catch (e) {
       console.error(e);
+      setActionMessage(e instanceof Error ? e.message : "GitHub action failed");
     } finally {
       setGithubLoading(false);
+    }
+  };
+
+  const handleApproval = async () => {
+    setApprovalLoading(true);
+    setActionMessage(null);
+    try {
+      const result = await approveInvestigation(id, authToken);
+      setData((current) => current ? { ...current, approval_status: result.status } : current);
+      setActionMessage(`Approval state: ${result.status}`);
+    } catch (error: unknown) {
+      console.error(error);
+      setActionMessage(error instanceof Error ? error.message : "Approval failed");
+    } finally {
+      setApprovalLoading(false);
     }
   };
 
@@ -81,7 +113,11 @@ export default function InvestigationDetailPage() {
     );
   }
 
-  const { severity, recommendation, evidence_completeness, confirmed_consumers_count, ai_explanation, evidence_bundle, remediation, dataset_urn } = data;
+  const { severity, recommendation, evidence_completeness, confirmed_consumers_count, ai_explanation, evidence_bundle, remediation, dataset_urn, approval_status } = data;
+  const actionAllowed = approval_status === "APPROVED" && authToken.length > 0;
+  const ownerRows = evidence_bundle.graph.nodes.flatMap((node) =>
+    node.owners.map((owner) => ({ owner, asset: node.label })),
+  );
 
   return (
     <div className="space-y-8">
@@ -118,44 +154,65 @@ export default function InvestigationDetailPage() {
               <p className="text-xs font-mono text-slate-500 pt-1">
                 Target Dataset: <span className="text-slate-900 font-semibold">{dataset_urn}</span>
               </p>
+              <p className={`text-xs font-mono font-bold ${actionAllowed ? "text-emerald-700" : "text-amber-700"}`}>
+                External action state: {approval_status || "UNKNOWN"}
+              </p>
             </div>
           </div>
 
           {/* Action Triggers */}
-          <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-3 flex-wrap max-w-xl justify-end">
+            <label className="w-full text-[11px] font-mono text-slate-600">
+              Operator token (kept in memory only)
+              <input
+                type="password"
+                value={authToken}
+                onChange={(event) => setAuthToken(event.target.value)}
+                autoComplete="off"
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900"
+                placeholder="SENTINEL_AUTH_TOKEN"
+              />
+            </label>
+
+            {approval_status !== "APPROVED" && (
+              <button
+                onClick={() => void handleApproval()}
+                disabled={approvalLoading || authToken.length === 0}
+                className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white font-bold text-xs shadow-md transition flex items-center gap-2"
+              >
+                {approvalLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                Approve External Actions
+              </button>
+            )}
+
             <button
-              onClick={handleWriteback}
-              disabled={writebackLoading || writebackDone}
+              onClick={() => void handleWriteback()}
+              disabled={writebackLoading || writebackDone || !actionAllowed}
               className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-bold text-xs shadow-md transition flex items-center gap-2 cursor-pointer"
             >
               {writebackLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : writebackDone ? <Check className="w-4 h-4" /> : <Database className="w-4 h-4" />}
-              {writebackDone ? "Persisted to DataHub" : "Persist to DataHub"}
+              {writebackDone ? "Persisted to DataHub" : actionAllowed ? "Persist to DataHub" : "Awaiting Approval"}
             </button>
 
             <button
-              onClick={handleGitHubComment}
-              disabled={githubLoading || githubDone}
+              onClick={() => void handleGitHubComment()}
+              disabled={githubLoading || githubDone || !actionAllowed}
               className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white font-bold text-xs shadow-md transition flex items-center gap-2 cursor-pointer"
             >
               {githubLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : githubDone ? <Check className="w-4 h-4" /> : <GitPullRequest className="w-4 h-4" />}
-              {githubDone ? "Posted Review to PR" : "Post Review to GitHub"}
+              {githubDone ? "Posted Review to PR" : actionAllowed ? "Post Review to GitHub" : "Approval + Token Required"}
             </button>
           </div>
+          {actionMessage && <p className="text-xs font-mono text-slate-600">{actionMessage}</p>}
         </div>
       </div>
 
       {/* Navigation Tabs */}
       <div className="border-b border-slate-200 flex gap-2 overflow-x-auto">
-        {[
-          { id: "overview", label: "Executive AI Summary" },
-          { id: "graph", label: "Blast-Radius Lineage Graph" },
-          { id: "evidence", label: "Evidence Ledger" },
-          { id: "remediation", label: "SQLGlot Patch Diff" },
-          { id: "timeline", label: "Audit Timeline" },
-        ].map((tab) => (
+        {INVESTIGATION_TABS.map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
+            onClick={() => setActiveTab(tab.id)}
             className={`px-5 py-3 text-xs font-mono font-bold border-b-2 transition whitespace-nowrap ${
               activeTab === tab.id
                 ? "border-blue-600 text-blue-600 bg-blue-50/50"
@@ -206,15 +263,13 @@ export default function InvestigationDetailPage() {
             <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-3">
               <h4 className="font-bold text-slate-900 text-sm">Identified Technical Owners</h4>
               <div className="space-y-2 text-xs font-mono text-slate-600">
-                <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200">
-                  <span className="text-slate-900 font-bold">Sarah Chen</span> (sarah.chen@company.com) - raw_customers
-                </div>
-                <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200">
-                  <span className="text-slate-900 font-bold">Alex Rodriguez</span> (alex.rodriguez@company.com) - customer_360
-                </div>
-                <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200">
-                  <span className="text-slate-900 font-bold">David Kim</span> (david.kim@company.com) - churn_model
-                </div>
+                {ownerRows.length > 0 ? ownerRows.map(({ owner, asset }) => (
+                  <div key={`${asset}-${owner}`} className="p-2.5 bg-slate-50 rounded-xl border border-slate-200">
+                    <span className="text-slate-900 font-bold">{owner}</span> - {asset}
+                  </div>
+                )) : (
+                  <p className="p-2.5 bg-slate-50 rounded-xl border border-slate-200">No verified owner metadata returned.</p>
+                )}
               </div>
             </div>
           </div>
@@ -239,7 +294,7 @@ export default function InvestigationDetailPage() {
       {activeTab === "timeline" && (
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
           <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
-            <Clock className="w-5 h-5 text-blue-600" /> 13-Stage Workflow Audit Log Timeline
+            <Clock className="w-5 h-5 text-blue-600" /> Persisted Workflow Audit Log Timeline
           </h3>
 
           <div className="space-y-3">

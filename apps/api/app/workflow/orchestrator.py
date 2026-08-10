@@ -15,6 +15,7 @@ from app.llm.reasoning import LLMReasoningEngine, AIReasoningOutput
 from app.remediation.engine import SQLRemediationEngine, RemediationArtifact, RemediationStatus
 from app.github.client import GitHubClient, GitHubActionStatus
 from app.db.models import InvestigationDB, AuditEventDB
+from app.db.database import init_db
 
 
 class WorkflowStage(str):
@@ -68,6 +69,7 @@ class SentinelWorkflowOrchestrator:
     """
 
     def __init__(self, db_session: Session):
+        init_db()
         self.db = db_session
         self.dh_client = DataHubClient()
         self.dh_writeback = DataHubWritebackEngine()
@@ -80,7 +82,7 @@ class SentinelWorkflowOrchestrator:
         after_schema: SchemaSnapshot,
         pr_url: Optional[str] = None,
         downstream_sql: Optional[str] = None,
-        is_approved: bool = False
+        approval_granted: bool = False
     ) -> InvestigationResult:
         events = []
         result = None
@@ -89,7 +91,7 @@ class SentinelWorkflowOrchestrator:
             after_schema=after_schema,
             pr_url=pr_url,
             downstream_sql=downstream_sql,
-            is_approved=is_approved
+            approval_granted=approval_granted
         ):
             if isinstance(event, InvestigationResult):
                 result = event
@@ -103,7 +105,7 @@ class SentinelWorkflowOrchestrator:
         after_schema: SchemaSnapshot,
         pr_url: Optional[str] = None,
         downstream_sql: Optional[str] = None,
-        is_approved: bool = False
+        approval_granted: bool = False
     ) -> AsyncGenerator[Any, None]:
         inv_id = str(uuid.uuid4())
         data_mode_cfg = os.getenv("SENTINEL_DATA_MODE", getattr(settings, "SENTINEL_DATA_MODE", "live")).lower()
@@ -162,7 +164,7 @@ class SentinelWorkflowOrchestrator:
 
         # 7. GENERATE_REMEDIATION & 8. VALIDATE_REMEDIATION
         remediation_artifact = SQLRemediationEngine.remediate_dbt_model(
-            file_path="models/marts/customer_360.sql",
+            file_path="downstream.sql",
             original_sql=downstream_sql,
             changes=changes
         )
@@ -197,11 +199,11 @@ class SentinelWorkflowOrchestrator:
         yield WorkflowProgressEvent(
             investigation_id=inv_id,
             stage=WorkflowStage.HUMAN_APPROVAL,
-            status="AWAITING_APPROVAL" if (requires_human and not is_approved) else "COMPLETED",
-            message=f"Human approval check: {'AWAITING APPROVAL' if (requires_human and not is_approved) else 'AUTO-APPROVED / AUTHORIZED'}"
+            status="AWAITING_APPROVAL" if (requires_human and not approval_granted) else "COMPLETED",
+            message=f"Human approval check: {'AWAITING APPROVAL' if (requires_human and not approval_granted) else 'ACTION NOT EXECUTED BY ANALYSIS'}"
         )
 
-        # 11. ACT (GitHub review comment) — Execution gated on is_approved
+        # 11. ACT (GitHub review comment) — analysis never executes external action
         critical_paths = [
             f"{e.source} → {e.target} ({e.lineage_type})"
             for e in evidence_bundle.graph.edges
@@ -219,7 +221,7 @@ class SentinelWorkflowOrchestrator:
             recommended_action=ai_explanation.recommended_action,
             remediation_diff=remediation_artifact.unified_diff,
             investigation_id=inv_id,
-            is_approved=is_approved
+            approval_granted=approval_granted
         )
         yield WorkflowProgressEvent(
             investigation_id=inv_id,
@@ -228,7 +230,7 @@ class SentinelWorkflowOrchestrator:
             message=f"GitHub action: {github_res.message}"
         )
 
-        # 12. WRITE_BACK (DataHub GMS mutation) — Execution gated on is_approved
+        # 12. WRITE_BACK (DataHub mutation) — analysis never executes external action
         writeback_res = await self.dh_writeback.writeback_investigation(
             investigation_id=inv_id,
             dataset_urn=changes.dataset_urn,
@@ -241,7 +243,7 @@ class SentinelWorkflowOrchestrator:
             summary=ai_explanation.executive_summary,
             pr_url=pr_url,
             remediation_status=remediation_artifact.validation.status.value,
-            is_approved=is_approved
+            approval_granted=approval_granted
         )
         yield WorkflowProgressEvent(
             investigation_id=inv_id,
@@ -271,6 +273,12 @@ class SentinelWorkflowOrchestrator:
             potential_consumers_count=evidence_bundle.potential_consumers_count,
             datahub_writeback_status=writeback_res.status.value,
             github_action_status=github_res.status.value,
+            approval_status="AWAITING_APPROVAL" if (github_res.status.value == "AWAITING_APPROVAL" or writeback_res.status.value == "AWAITING_APPROVAL") else "NOT_REQUIRED",
+            integration_mode=mode.value,
+            evidence_trust=risk_assessment.evidence_trust,
+            risk_assessment_json=risk_assessment.model_dump(),
+            writeback_result_json=writeback_res.model_dump(),
+            github_result_json=github_res.model_dump(),
             schema_change_json=changes.model_dump(),
             evidence_graph_json=evidence_bundle.model_dump(),
             ai_explanation_json=ai_explanation.model_dump(),
@@ -279,15 +287,28 @@ class SentinelWorkflowOrchestrator:
         self.db.add(db_inv)
         self.db.commit()
 
-        # Save completed audit log entry
-        audit = AuditEventDB(
-            investigation_id=inv_id,
-            stage=WorkflowStage.COMPLETE,
-            status="COMPLETED",
-            message="Sentinel investigation workflow completed.",
-            details_json={"mode": mode.value, "verdict": risk_assessment.verdict.value, "trust": risk_assessment.evidence_trust}
-        )
-        self.db.add(audit)
+        # Persist the meaningful lifecycle after the parent row exists so the FK
+        # is valid. Each entry contains the actual stage result used by the run.
+        lifecycle = [
+            ("START", "COMPLETED", "Investigation started", {}),
+            ("DIFF", "COMPLETED", "Schema diff computed", {"change_count": len(changes.changes)}),
+            ("DATAHUB_CONTEXT", "COMPLETED", "DataHub context retrieval finished", {"mode": mode.value}),
+            ("IMPACT", "COMPLETED", "Impact evidence graph built", {"confirmed": evidence_bundle.confirmed_consumers_count, "potential": evidence_bundle.potential_consumers_count}),
+            ("RISK", "COMPLETED", "Risk assessment persisted", risk_assessment.model_dump()),
+            ("REMEDIATION", "COMPLETED", "Remediation analysis finished", remediation_artifact.validation.model_dump()),
+            ("APPROVAL", "AWAITING_APPROVAL" if db_inv.approval_status == "AWAITING_APPROVAL" else "NOT_REQUIRED", "External actions require persisted approval", {"approval_status": db_inv.approval_status}),
+            ("ACTION", github_res.status.value, github_res.message, github_res.model_dump()),
+            ("WRITEBACK", writeback_res.status.value, writeback_res.message, writeback_res.model_dump()),
+            ("COMPLETE", "COMPLETED", "Sentinel investigation workflow completed", {"verdict": risk_assessment.verdict.value}),
+        ]
+        for stage, status, message, details in lifecycle:
+            self.db.add(AuditEventDB(
+                investigation_id=inv_id,
+                stage=stage,
+                status=status,
+                message=message,
+                details_json=details,
+            ))
         self.db.commit()
 
         result = InvestigationResult(

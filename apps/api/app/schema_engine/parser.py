@@ -118,13 +118,19 @@ class SchemaParserEngine:
             for drop in drops:
                 if drop.args.get("kind") == "COLUMN":
                     dropped_col = drop.this.name.lower()
+                    if not any(f.name.lower() == dropped_col for f in after_fields):
+                        return SchemaParseResult(success=False, error=f"Cannot drop missing column '{drop.this.name}'")
                     after_fields = [f for f in after_fields if f.name.lower() != dropped_col]
 
             # Check for RENAME COLUMN
             renames = list(stmt.find_all(RenameColumn))
             for r in renames:
                 old_col = r.this.name
-                new_col = r.to.name
+                new_col = r.args["to"].name
+                if not any(f.name.lower() == old_col.lower() for f in after_fields):
+                    return SchemaParseResult(success=False, error=f"Cannot rename missing column '{old_col}'")
+                if any(f.name.lower() == new_col.lower() for f in after_fields):
+                    return SchemaParseResult(success=False, error=f"Cannot rename '{old_col}' to existing column '{new_col}'")
                 explicit_renames[old_col] = new_col
 
                 new_fields = []

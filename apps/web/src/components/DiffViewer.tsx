@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { CheckCircle, AlertTriangle, FileCode, Copy, Check } from "lucide-react";
+import type { RemediationArtifact } from "@/lib/api";
 
 interface DiffViewerProps {
-  remediation: any;
+  remediation?: RemediationArtifact;
 }
 
 export function DiffViewer({ remediation }: DiffViewerProps) {
@@ -22,7 +23,7 @@ export function DiffViewer({ remediation }: DiffViewerProps) {
   const isPassed = validation?.is_valid;
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(unified_diff);
+    void navigator.clipboard.writeText(unified_diff);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

@@ -1,0 +1,4 @@
+{
+  "status": "ERROR_MISSING_COMMITS",
+  "error": "BASE_SHA or HEAD_SHA not provided"
+}
