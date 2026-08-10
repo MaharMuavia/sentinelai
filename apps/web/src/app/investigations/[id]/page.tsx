@@ -24,6 +24,7 @@ export default function InvestigationDetailPage() {
   const [data, setData] = useState<InvestigationDetail | null>(null);
   const [events, setEvents] = useState<InvestigationEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<InvestigationTab>("overview");
 
   const [writebackLoading, setWritebackLoading] = useState(false);
@@ -44,8 +45,12 @@ export default function InvestigationDetailPage() {
         .then(([inv, evs]) => {
           setData(inv);
           setEvents(evs);
+          setLoadError(null);
         })
-        .catch((err) => console.error(err))
+        .catch((err: unknown) => {
+          console.error(err);
+          setLoadError(err instanceof Error ? err.message : "Failed to load investigation");
+        })
         .finally(() => setLoading(false));
     }
   }, [id]);
@@ -102,6 +107,18 @@ export default function InvestigationDetailPage() {
     );
   }
 
+  if (loadError) {
+    return (
+      <div role="alert" className="p-12 text-center space-y-4">
+        <p className="text-red-700 font-bold">{loadError}</p>
+        <p className="text-sm text-slate-600">Confirm that the Sentinel API is running and that this investigation ID exists.</p>
+        <Link href="/dashboard" className="text-xs text-blue-600 hover:underline">
+          Return to Audit Dashboard
+        </Link>
+      </div>
+    );
+  }
+
   if (!data) {
     return (
       <div className="p-12 text-center space-y-4">
@@ -115,6 +132,12 @@ export default function InvestigationDetailPage() {
 
   const { severity, recommendation, evidence_completeness, confirmed_consumers_count, ai_explanation, evidence_bundle, remediation, dataset_urn, approval_status } = data;
   const actionAllowed = approval_status === "APPROVED" && authToken.length > 0;
+  const severityClass = severity === "CRITICAL" || severity === "HIGH"
+    ? "bg-red-100 text-red-800 border-red-200"
+    : severity === "MEDIUM" ? "bg-amber-100 text-amber-800 border-amber-200" : "bg-emerald-100 text-emerald-800 border-emerald-200";
+  const decisionClass = recommendation === "BLOCK" || recommendation === "INSUFFICIENT_EVIDENCE"
+    ? "bg-red-600 text-white"
+    : recommendation === "MERGE_WITH_CAUTION" ? "bg-amber-500 text-slate-950" : "bg-emerald-600 text-white";
   const ownerRows = evidence_bundle.graph.nodes.flatMap((node) =>
     node.owners.map((owner) => ({ owner, asset: node.label })),
   );
@@ -123,7 +146,7 @@ export default function InvestigationDetailPage() {
     <div className="space-y-8">
       {/* Top Back Navigation */}
       <div>
-        <Link href="/" className="inline-flex items-center gap-2 text-xs font-mono text-slate-500 hover:text-slate-900 transition">
+        <Link href="/dashboard" className="inline-flex items-center gap-2 text-xs font-mono text-slate-500 hover:text-slate-900 transition">
           <ArrowLeft className="w-4 h-4" /> Back to Investigations Overview
         </Link>
       </div>
@@ -133,12 +156,12 @@ export default function InvestigationDetailPage() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-3">
             <div className="flex items-center gap-2.5 flex-wrap">
-              <span className="px-3 py-1 rounded-full text-xs font-mono font-extrabold bg-red-100 text-red-800 border border-red-200 flex items-center gap-1.5">
+              <span className={`px-3 py-1 rounded-full text-xs font-mono font-extrabold border flex items-center gap-1.5 ${severityClass}`}>
                 <ShieldAlert className="w-4 h-4 text-red-600" />
                 {severity} SEVERITY
               </span>
 
-              <span className="px-3 py-1 rounded-full text-xs font-mono font-extrabold bg-red-600 text-white shadow-xs">
+              <span className={`px-3 py-1 rounded-full text-xs font-mono font-extrabold shadow-xs ${decisionClass}`}>
                 DECISION: {recommendation}
               </span>
 

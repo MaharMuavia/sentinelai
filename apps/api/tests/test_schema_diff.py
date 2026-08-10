@@ -67,6 +67,10 @@ def test_schema_diff_type_compatibility_matrix():
     assert SchemaDiffEngine.is_type_compatible("VARCHAR(32)", "VARCHAR(128)")
     assert not SchemaDiffEngine.is_type_compatible("VARCHAR(128)", "VARCHAR(32)")
     assert not SchemaDiffEngine.is_type_compatible("VARCHAR", "TIMESTAMP")
+    assert not SchemaDiffEngine.is_type_compatible("FLOAT", "INTEGER")
+    assert SchemaDiffEngine.is_type_compatible("DOUBLE", "FLOAT")
+    assert not SchemaDiffEngine.is_type_compatible("NUMBER(10,2)", "NUMBER(10,3)")
+    assert SchemaDiffEngine.is_type_compatible("SMALLINT", "BIGINT")
 
 
 def test_invalid_explicit_rename_fails_closed():

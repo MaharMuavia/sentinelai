@@ -97,6 +97,8 @@ class SentinelWorkflowOrchestrator:
                 result = event
             else:
                 events.append(event)
+        if result is None:
+            raise RuntimeError("Investigation workflow finished without a result")
         return result
 
     async def execute_investigation_streaming(
@@ -252,15 +254,7 @@ class SentinelWorkflowOrchestrator:
             message=f"DataHub writeback: {writeback_res.message}"
         )
 
-        # 13. COMPLETE
-        yield WorkflowProgressEvent(
-            investigation_id=inv_id,
-            stage=WorkflowStage.COMPLETE,
-            status="COMPLETED",
-            message="Sentinel change control investigation completed"
-        )
-
-        # TRANSACTION ORDERING FIX: Save InvestigationDB record FIRST before any child audit events
+        # Persist the investigation and lifecycle atomically before reporting completion.
         db_inv = InvestigationDB(
             id=inv_id,
             dataset_urn=changes.dataset_urn,
@@ -285,7 +279,7 @@ class SentinelWorkflowOrchestrator:
             remediation_json=remediation_artifact.model_dump()
         )
         self.db.add(db_inv)
-        self.db.commit()
+        self.db.flush()
 
         # Persist the meaningful lifecycle after the parent row exists so the FK
         # is valid. Each entry contains the actual stage result used by the run.
@@ -310,6 +304,14 @@ class SentinelWorkflowOrchestrator:
                 details_json=details,
             ))
         self.db.commit()
+
+        # 13. COMPLETE: persistence succeeded, so the result can be resolved by the UI.
+        yield WorkflowProgressEvent(
+            investigation_id=inv_id,
+            stage=WorkflowStage.COMPLETE,
+            status="COMPLETED",
+            message="Sentinel change control investigation completed"
+        )
 
         result = InvestigationResult(
             investigation_id=inv_id,

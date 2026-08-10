@@ -41,6 +41,8 @@ jobs:
         run: npm ci --prefix apps/web
       - name: Lint Next.js Application
         run: npm run lint --prefix apps/web
+      - name: Run Frontend Regression Tests
+        run: npm run test --prefix apps/web
       - name: Build Next.js Application
         run: |
           npm run build --prefix apps/web

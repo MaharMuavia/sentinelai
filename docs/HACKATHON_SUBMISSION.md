@@ -51,7 +51,7 @@ Sentinel AI operates **before merge**. When a developer opens a GitHub PR modify
 ### 2. Technical Execution
 - **Implementation**: FastAPI backend, Next.js 16 frontend, SQLGlot AST engine, PostgreSQL/SQLAlchemy persistence, OIDC-scoped mutation authorization, and a pinned long-lived DataHub MCP HTTP sidecar.
 - **Code Evidence**: Real git commit PR diff extraction (`extract_pr_diff.py`), deterministic CI exit code enforcement (`run_ci_check.py`), semantic remediation safety checks (`remediation/engine.py`), and non-interactive ESLint setup.
-- **Testing**: The final local run passed 51 backend contract/regression tests, ESLint, the Next.js production build, PostgreSQL readiness/persistence, MCP sidecar health, and container startup. Live GitHub checks remain reported separately as PASS, FAIL, or UNVERIFIED.
+- **Testing**: The final local run passed 57 backend contract/regression tests, 2 frontend component regressions, ESLint, and the Next.js production build. PostgreSQL readiness/persistence, MCP sidecar health, container startup, and live GitHub checks must be reported separately as PASS, FAIL, or UNVERIFIED for the final submission run.
 
 ### 3. Originality
 - **Implementation**: Moves beyond passive metadata browsing by turning DataHub context into an **active pre-merge change firewall**.
@@ -64,6 +64,7 @@ Sentinel AI operates **before merge**. When a developer opens a GitHub PR modify
 
 ## 4. Manual Checklist Before Devpost Submission
 
+- [ ] Commit the final verified changes, merge `agent/sentinel-production-hardening` into `main`, and confirm the public repository default branch contains the submitted commit.
 - [ ] Verify GitHub repository is public: `https://github.com/MaharMuavia/sentinelai`
 - [ ] Configure a real test PR and GitHub token before claiming that a PR comment was posted live.
 - [ ] Add the local DataHub service-account token as the `DATAHUB_GMS_TOKEN`

@@ -1,4 +1,5 @@
 import json
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,6 +19,9 @@ from app.datahub.client import DataHubClient, IntegrationMode
 from app.datahub.writeback import DataHubWritebackEngine, WritebackStatus
 from app.github.client import GitHubClient, GitHubActionStatus
 from app.workflow.orchestrator import SentinelWorkflowOrchestrator, WorkflowProgressEvent, InvestigationResult
+
+
+logger = logging.getLogger("sentinel.api")
 
 
 @asynccontextmanager
@@ -49,14 +53,18 @@ app.add_middleware(
 class AnalyzeChangeRequest(BaseModel):
     before_schema: SchemaSnapshot
     after_schema: SchemaSnapshot
-    pr_url: Optional[str] = Field(None, description="GitHub Pull Request URL")
-    downstream_sql: Optional[str] = Field(None, description="Downstream model SQL query for remediation verification")
+    pr_url: Optional[str] = Field(None, max_length=2048, description="GitHub Pull Request URL")
+    downstream_sql: Optional[str] = Field(
+        None,
+        max_length=1_000_000,
+        description="Downstream model SQL query for remediation verification",
+    )
 
 
 class AnalyzeDDLRequest(BaseModel):
-    ddl_statement: str
-    dataset_urn: str
-    pr_url: Optional[str] = None
+    ddl_statement: str = Field(min_length=1, max_length=100_000)
+    dataset_urn: str = Field(min_length=1, max_length=2048)
+    pr_url: Optional[str] = Field(None, max_length=2048)
 
 
 @app.get("/health")
@@ -85,8 +93,13 @@ async def integrations_status():
     llm_connected = bool(settings.OPENAI_API_KEY)
     llm_mode = f"OpenAI ({settings.AGENT_MODEL})" if llm_connected else "DETERMINISTIC_FALLBACK"
 
-    github_connected = github_client.is_configured()
-    github_mode = "GitHub API" if github_connected else "Disabled / Dry-Run Local Mode"
+    github_configured = github_client.is_configured()
+    github_connected = await github_client.check_connection()
+    github_mode = (
+        "GitHub API (verified)" if github_connected
+        else "Configured / connectivity unverified" if github_configured
+        else "Disabled / dry-run local mode"
+    )
 
     return {
         "datahub": {
@@ -105,6 +118,7 @@ async def integrations_status():
         "github": {
             "name": "GitHub Actions",
             "repository": settings.GITHUB_REPOSITORY or "Not configured",
+            "configured": github_configured,
             "connected": github_connected,
             "mode": github_mode
         }
@@ -128,16 +142,21 @@ async def analyze_change_stream(req: AnalyzeChangeRequest, db: Session = Depends
     orchestrator = SentinelWorkflowOrchestrator(db)
 
     async def event_generator():
-        async for item in orchestrator.execute_investigation_streaming(
-            before_schema=req.before_schema,
-            after_schema=req.after_schema,
-            pr_url=req.pr_url,
-            downstream_sql=req.downstream_sql
-        ):
-            if isinstance(item, WorkflowProgressEvent):
-                yield f"data: {item.model_dump_json()}\n\n"
-            elif isinstance(item, InvestigationResult):
-                yield f"data: {json.dumps({'type': 'RESULT', 'data': item.model_dump()})}\n\n"
+        try:
+            async for item in orchestrator.execute_investigation_streaming(
+                before_schema=req.before_schema,
+                after_schema=req.after_schema,
+                pr_url=req.pr_url,
+                downstream_sql=req.downstream_sql
+            ):
+                if isinstance(item, WorkflowProgressEvent):
+                    yield f"data: {item.model_dump_json()}\n\n"
+                elif isinstance(item, InvestigationResult):
+                    yield f"data: {json.dumps({'type': 'RESULT', 'data': item.model_dump()})}\n\n"
+        except Exception:
+            db.rollback()
+            logger.exception("Streaming investigation failed")
+            yield f"data: {json.dumps({'type': 'ERROR', 'message': 'Investigation failed before completion'})}\n\n"
 
     return StreamingResponse(
         event_generator(),
@@ -247,6 +266,9 @@ def get_investigation(investigation_id: str, db: Session = Depends(get_db)):
 
 @app.get("/api/investigations/{investigation_id}/events")
 def get_investigation_events(investigation_id: str, db: Session = Depends(get_db)):
+    exists = db.query(InvestigationDB.id).filter(InvestigationDB.id == investigation_id).first()
+    if not exists:
+        raise HTTPException(status_code=404, detail=f"Investigation record '{investigation_id}' not found")
     events = db.query(AuditEventDB).filter(AuditEventDB.investigation_id == investigation_id).order_by(AuditEventDB.id.asc()).all()
     return [{
         "id": e.id,
@@ -321,6 +343,14 @@ async def trigger_github_comment(
 
     if not rec.pr_url:
         raise HTTPException(status_code=400, detail="No PR URL associated with this investigation record.")
+
+    if rec.approval_status != "APPROVED":
+        return {
+            "status": GitHubActionStatus.AWAITING_APPROVAL.value,
+            "success": False,
+            "action_type": "COMMENT",
+            "message": "Persisted approval is required before posting a GitHub comment",
+        }
 
     if rec.github_action_status == GitHubActionStatus.SUCCESS.value and rec.github_result_json:
         return rec.github_result_json

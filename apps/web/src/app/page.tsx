@@ -19,13 +19,13 @@ export default function LandingPage() {
 
         {/* Main Title */}
         <div className="space-y-4">
-          <h1 className="text-4xl sm:text-6xl font-extrabold text-slate-900 tracking-tight leading-tight">
+          <h1 className="text-4xl sm:text-6xl font-extrabold text-slate-100 tracking-tight leading-tight">
             Know what a data change will break <br className="hidden sm:inline" />
             <span className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">
               before you merge it — then fix it.
             </span>
           </h1>
-          <p className="text-slate-600 text-base sm:text-lg max-w-3xl mx-auto leading-relaxed">
+          <p className="text-slate-300 text-base sm:text-lg max-w-3xl mx-auto leading-relaxed">
             Sentinel AI is an autonomous pre-merge Data Reliability Engineer powered by DataHub. 
             It investigates schema diffs, queries organizational lineage, computes evidence-backed risk, 
             generates AST-validated SQLGlot patches, and writes persistent audit records back to DataHub.

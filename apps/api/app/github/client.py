@@ -47,6 +47,21 @@ class GitHubClient:
     def is_configured(self) -> bool:
         return bool(self.token and self.repository)
 
+    async def check_connection(self) -> bool:
+        """Verify that the configured token can read the configured repository."""
+        if not self.is_configured():
+            return False
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(
+                    f"https://api.github.com/repos/{self.repository}",
+                    headers=self.headers,
+                )
+            return response.status_code == 200
+        except httpx.HTTPError as exc:
+            logger.warning("GitHub connectivity check failed: %s", exc)
+            return False
+
     @staticmethod
     def parse_pr_url(pr_url: str) -> Tuple[Optional[str], Optional[int], Optional[str]]:
         """

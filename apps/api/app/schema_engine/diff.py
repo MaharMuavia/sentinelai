@@ -14,22 +14,22 @@ class ChangeType(str, Enum):
 
 
 class SchemaField(BaseModel):
-    name: str
-    type: Optional[str] = None
+    name: str = Field(min_length=1, max_length=512)
+    type: Optional[str] = Field(default=None, max_length=256)
     nullable: bool = True
-    description: Optional[str] = None
+    description: Optional[str] = Field(default=None, max_length=4096)
 
 
 class DatasetIdentifier(BaseModel):
-    urn: str
-    platform: Optional[str] = None
-    name: str
-    env: str = "PROD"
+    urn: str = Field(min_length=1, max_length=2048)
+    platform: Optional[str] = Field(default=None, max_length=128)
+    name: str = Field(min_length=1, max_length=512)
+    env: str = Field(default="PROD", min_length=1, max_length=64)
 
 
 class SchemaSnapshot(BaseModel):
     dataset: DatasetIdentifier
-    fields: List[SchemaField]
+    fields: List[SchemaField] = Field(max_length=10_000)
 
 
 class SchemaChange(BaseModel):
@@ -191,10 +191,18 @@ class SchemaDiffEngine:
             return True
         if before.startswith("VARCHAR") and after.startswith("VARCHAR"):
             return SchemaDiffEngine._capacity(after) >= SchemaDiffEngine._capacity(before)
-        if before.startswith("NUMBER") and after.startswith("NUMBER"):
-            return SchemaDiffEngine._numeric_capacity(after) >= SchemaDiffEngine._numeric_capacity(before)
-        numeric = {"INT", "INTEGER", "BIGINT", "SMALLINT", "FLOAT", "DOUBLE", "REAL", "DECIMAL", "NUMERIC"}
-        if before in numeric and after in numeric:
+        fixed_numeric = ("NUMBER", "DECIMAL", "NUMERIC")
+        integer_aliases = {"INT", "INTEGER", "BIGINT", "SMALLINT", "TINYINT", "BYTEINT"}
+        float_aliases = {"FLOAT", "FLOAT4", "FLOAT8", "DOUBLE", "DOUBLE PRECISION", "REAL"}
+        before_fixed = before.startswith(fixed_numeric) or before in integer_aliases
+        after_fixed = after.startswith(fixed_numeric) or after in integer_aliases
+        if before_fixed and after_fixed:
+            before_precision, before_scale = SchemaDiffEngine._numeric_capacity(before)
+            after_precision, after_scale = SchemaDiffEngine._numeric_capacity(after)
+            before_integer_digits = before_precision - before_scale
+            after_integer_digits = after_precision - after_scale
+            return after_integer_digits >= before_integer_digits and after_scale >= before_scale
+        if before in float_aliases and after in float_aliases:
             return True
         return False
 
@@ -206,4 +214,9 @@ class SchemaDiffEngine:
     @staticmethod
     def _numeric_capacity(type_name: str) -> tuple[int, int]:
         match = re.search(r"\((\d+)\s*,\s*(\d+)\)", type_name)
-        return (int(match.group(1)), int(match.group(2))) if match else (38, 38)
+        if match:
+            return int(match.group(1)), int(match.group(2))
+        precision_only = re.search(r"\((\d+)\)", type_name)
+        if precision_only:
+            return int(precision_only.group(1)), 0
+        return 38, 0
